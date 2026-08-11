@@ -38,10 +38,10 @@ Rejected alternatives:
 | `hooks/hooks.json` | `Stop`, `PostToolUse`, `Notification` wiring as a Claude Code plugin |
 | `speak-daemon.py` | Kokoro pipeline held warm; FIFO reader; PID file written only after load, so clients know when it's ready |
 | Hush (`SIGUSR1`) | Timestamp-based: utterances queued before the interrupt are discarded, not played late |
-| `hush-on-input.sh` | Auto-silence when the user starts typing |
-| `speak.sh` | Text normalization — `settings.json` → "settings dot json", `!=` → "not equal", `e.g.` → "for example" |
-| Config | Global `~/.claude-code-narrator/config` + per-project override for enabled/voice/speed |
-| Commands/skills | `/hush`, `/on`, `/off`, `/speed`, `/cast`, `/speak` |
+| `hush-on-input.sh` | Auto-silence when the user starts typing. Registered in `~/.claude/settings.json` as `UserPromptSubmit` (not in `hooks.json`) so it persists across sessions; managed by `/narrator:on` and `/narrator:off` |
+| `speak.sh` | Text normalization — filename dot expansion, operators to words, abbreviation expansion, and pronunciation fixes for tokens Kokoro mangles (README, JSON, API). `--force` bypasses the enabled check |
+| Config | Global `~/.claude-code-narrator/config` + per-project override for enabled/voice/speed; `daemon.lock` (atomic mkdir) prevents concurrent daemon starts; `last-spoken` dedupes |
+| Commands/skills | `/narrator:on`, `:off`, `:hush`, `:speed`, `:cast`, `:speak` |
 
 `last_assistant_message` arrives directly in the Stop hook payload — no transcript parsing, so
 no fragility across Claude Code versions.
@@ -83,8 +83,12 @@ sentence-aligned truncation.
 
 Narrator announces every tool call via `PostToolUse` ("Reading file settings dot json"), which
 gets grating over a long session. Disable that hook; narrate deliberately instead by calling
-`speak.sh` when something is genuinely worth saying — before a long operation, or when
+`speak.sh --force` when something is genuinely worth saying — before a long operation, or when
 something breaks mid-turn.
+
+Note what else this drops: `speak-step.sh` also parses the transcript JSONL to speak
+intermediate text blocks written between tool calls. Disabling the hook silences those too.
+That is intended — deliberate narration replaces both.
 
 Wanted aloud: end-of-turn line, permission prompts (`Notification`, inherited), mid-turn
 progress, errors and blocked work.
@@ -158,7 +162,14 @@ feature, not our code.
 
 ## Implementation order
 
-1. **Run narrator unmodified on this box.** Install deps, start the daemon, speak a line.
+**Dev-workflow trap:** hooks execute from the plugin cache
+(`~/.claude/plugins/cache/.../narrator/<version>/`), not this repo, and `/reload-plugins` does not
+refresh the cache unless the version changes. Every script edit must be copied to the cache — or
+the version bumped — before it can be tested. Budget for this in every step below.
+
+1. **Run narrator unmodified on this box.** Install deps into its venv at `~/.claude-narrator-venv`
+   (Python 3.13 needs kokoro/misaki from git with `--no-deps` plus manual cp313 spacy wheels — see
+   its `kokoro-speak.py` bootstrap), start the daemon, speak a line.
    → verify: Kokoro audio comes out of the speakers through WSLg; record cold-start and warm-synth times.
 2. **Fix mic + verify `/voice`.** `wsl --shutdown`, restart, `rec` a speaking sample and check the
    level is real, then `/voice` and confirm hold-to-talk is offered.
