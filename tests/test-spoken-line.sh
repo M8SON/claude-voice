@@ -110,6 +110,53 @@ assert_strip "removes indented marker" \
     "Body."
 
 echo ""
+echo "=== Stop hook end-to-end ==="
+
+# Drive speak-response.sh with a fake speak.sh on PATH that records its stdin.
+assert_hook() {
+    local description="$1" message="$2" expected="$3"
+    local tmpdir actual
+    tmpdir=$(mktemp -d)
+
+    mkdir -p "$tmpdir/scripts"
+    cp "$SCRIPT_DIR/../hooks/scripts/speak-response.sh" "$tmpdir/scripts/"
+    cp "$SCRIPT_DIR/../hooks/scripts/spoken-line.sh" "$tmpdir/scripts/"
+    cat > "$tmpdir/scripts/speak.sh" <<'STUB'
+#!/usr/bin/env bash
+cat >> "$SPOKEN_LOG"
+STUB
+    chmod +x "$tmpdir/scripts/speak.sh"
+
+    : > "$tmpdir/spoken.log"
+    printf '%s' "$message" \
+        | jq -Rs '{last_assistant_message: ., cwd: "/tmp", permission_mode: "default"}' \
+        | SPOKEN_LOG="$tmpdir/spoken.log" bash "$tmpdir/scripts/speak-response.sh"
+
+    actual=$(cat "$tmpdir/spoken.log")
+    rm -rf "$tmpdir"
+
+    if [[ "$actual" == "$expected" ]]; then
+        echo "  PASS: $description"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: $description"
+        echo "        expected: \"$expected\""
+        echo "        actual:   \"$actual\""
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+assert_hook "speaks only the marker line" \
+    "Here is a long detailed answer with lots of prose."$'\n'"🔊 Short spoken version." \
+    "Short spoken version."
+assert_hook "silence marker speaks nothing" \
+    "Housekeeping."$'\n'"🔇" \
+    ""
+assert_hook "no marker falls back to the message" \
+    "Plain answer with no marker." \
+    "Plain answer with no marker."
+
+echo ""
 echo "=============================="
 echo "Results: $PASS passed, $FAIL failed"
 if [[ $FAIL -gt 0 ]]; then
