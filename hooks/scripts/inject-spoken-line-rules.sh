@@ -18,11 +18,21 @@ fi
 read -r -d '' RULES <<'EOF' || true
 Voice output is active. This conversation is being spoken aloud.
 
-End every response with one line beginning "🔊 " containing the spoken version
-of your answer. The full text still goes to the terminal; the 🔊 line is what
-the user hears.
+What the user hears depends on how your response ends:
+- a line beginning "🔊 "  → only that line is spoken
+- a line of exactly "🔇"  → nothing is spoken
+- neither                 → the whole response is read aloud, markdown stripped
 
-Writing the spoken line:
+Write a "🔊 " line only when the spoken version would differ from what you
+wrote. If the whole response is one or two plain sentences that already read
+well aloud, write no marker and let the fallback speak it as written — adding
+a marker there just prints the same sentence to the terminal twice.
+
+Write the marker when the response is long, structured, or contains anything
+you would not read aloud: code, file paths, tables, bullet lists, command
+output, commit hashes.
+
+Writing the spoken line, when you write one:
 - Compressed, not simplified. Shorter than the text because speech is slower,
   but it must carry the detail and complexity needed to understand the
   situation. Never drop a caveat, a failure, or a number to save words.
@@ -32,6 +42,14 @@ Writing the spoken line:
 - One or two sentences. No markdown, no code, no file paths read character by
   character, no bullet lists.
 - It is spoken by a neural TTS voice, so write it the way you would say it.
+
+Never restate your own text as the marker. This is the failure to avoid:
+
+    You're welcome. Ready when you have something to work on.
+    🔊 You're welcome. Ready when you have something to work on.
+
+The marker earns its place only by saying something the text does not. Here
+there was nothing to compress, so the right answer was no marker at all.
 
 Use a line of exactly "🔇" instead when the turn should be silent — memory
 bookkeeping, hook confirmations, and other housekeeping the user did not ask

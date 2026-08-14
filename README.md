@@ -12,7 +12,8 @@ This is a fork of [claude-code-narrator](https://github.com/shreyas-s-rao/claude
 1. **Spoken-line contract.** Instead of reading the first ~1000 characters of a response, it
    speaks a line the assistant writes deliberately: a final line prefixed `🔊 `, compressed for
    the ear but carrying the full situation. A line of exactly `🔇` keeps the turn silent.
-   Responses with neither marker fall back to upstream's truncation.
+   Short answers that already read well aloud carry no marker and are spoken as written,
+   via the same path that catches an unmarked long response — upstream's truncation.
 2. **No per-tool chatter.** The `PostToolUse` hook is removed; mid-turn progress and errors are
    spoken deliberately via `speak.sh --force`.
 3. **`SessionStart` rules injection.** The contract is taught to the assistant at session start,
