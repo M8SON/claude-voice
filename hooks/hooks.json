@@ -1,5 +1,5 @@
 {
-  "description": "Narrator voice output hooks for TTS feedback",
+  "description": "Voice output hooks: deliberate spoken line on turn end, plus notifications",
   "hooks": {
     "Stop": [
       {
@@ -8,17 +8,6 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/speak-response.sh",
             "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/speak-step.sh",
-            "timeout": 5
           }
         ]
       }
