@@ -157,6 +157,41 @@ assert_hook "no marker falls back to the message" \
     "Plain answer with no marker."
 
 echo ""
+echo "=== SessionStart rules injection ==="
+
+assert_inject() {
+    local description="$1" enabled="$2" expect_context="$3"
+    local tmphome actual has_context
+    tmphome=$(mktemp -d)
+    mkdir -p "$tmphome/.claude-code-narrator"
+    printf 'enabled=%s\n' "$enabled" > "$tmphome/.claude-code-narrator/config"
+
+    actual=$(HOME="$tmphome" bash "$SCRIPT_DIR/../hooks/scripts/inject-spoken-line-rules.sh" </dev/null)
+    rm -rf "$tmphome"
+
+    if [[ -z "$actual" ]]; then
+        has_context=no
+    elif printf '%s' "$actual" | jq -e '.hookSpecificOutput.additionalContext | test("🔊")' >/dev/null 2>&1; then
+        has_context=yes
+    else
+        has_context=malformed
+    fi
+
+    if [[ "$has_context" == "$expect_context" ]]; then
+        echo "  PASS: $description"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: $description"
+        echo "        expected: $expect_context"
+        echo "        actual:   $has_context ($actual)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+assert_inject "injects rules when enabled"     "true"  "yes"
+assert_inject "stays quiet when disabled"      "false" "no"
+
+echo ""
 echo "=============================="
 echo "Results: $PASS passed, $FAIL failed"
 if [[ $FAIL -gt 0 ]]; then

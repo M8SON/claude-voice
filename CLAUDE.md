@@ -51,9 +51,9 @@ Per-directory local state (optional):
 
 | Script | Hook event | Purpose |
 |--------|-----------|---------|
-| `speak-response.sh` | Stop | Speaks first ~1000 chars of final response |
-| `speak-step.sh` | PostToolUse | Speaks tool description + intermediate text blocks |
+| `speak-response.sh` | Stop | Extracts the 🔊 spoken line; falls back to sentence-aligned truncation |
 | `speak-notification.sh` | Notification | Speaks notification title/message |
+| `inject-spoken-line-rules.sh` | SessionStart | Injects the spoken-line contract when enabled |
 | `hush-on-input.sh` | UserPromptSubmit (user settings) | Silences speech when user types |
 
 ### Text-to-speech pipeline

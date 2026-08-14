@@ -4,6 +4,22 @@
 
 A Claude Code plugin that speaks responses aloud using [Kokoro](https://github.com/hexgrad/kokoro) TTS, a local neural text-to-speech engine. No cloud APIs, no latency — everything runs on your machine.
 
+## Fork notes
+
+This is a fork of [claude-code-narrator](https://github.com/shreyas-s-rao/claude-code-narrator)
+(MIT © 2026 Shreyas Rao) with three changes:
+
+1. **Spoken-line contract.** Instead of reading the first ~1000 characters of a response, it
+   speaks a line the assistant writes deliberately: a final line prefixed `🔊 `, compressed for
+   the ear but carrying the full situation. A line of exactly `🔇` keeps the turn silent.
+   Responses with neither marker fall back to upstream's truncation.
+2. **No per-tool chatter.** The `PostToolUse` hook is removed; mid-turn progress and errors are
+   spoken deliberately via `speak.sh --force`.
+3. **`SessionStart` rules injection.** The contract is taught to the assistant at session start,
+   gated on voice being enabled.
+
+Upstream is retained as the `upstream` git remote.
+
 ## Prerequisites
 
 - Python 3.9+ (tested on 3.13)
