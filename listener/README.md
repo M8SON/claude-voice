@@ -44,12 +44,16 @@ All optional, all environment variables:
 | `VAD_BACKEND` | `silero` | Or `rms` |
 | `VAD_MIN_SILENCE_MS` | `700` | How long a pause ends your turn |
 | `CLAUDE_TMUX_TARGET` | unset | tmux pane to type into. Unset = print only |
-| `AUTO_SUBMIT` | `true` | `false` types the text and waits for you to press Enter |
+| `AUTO_SUBMIT` | `false` | `true` presses Enter for you |
 
-**`AUTO_SUBMIT=false`** is the dictation mode: the transcript is typed into Claude
-Code's input line exactly as if you had typed it, and stays there until you press Enter.
-You get a chance to read it — and fix it — before it becomes a prompt. That costs one
-keypress and is the difference between hands-free and hands-nearly-free.
+**The default is dictation mode.** The transcript is typed into Claude Code's input line
+exactly as if you had typed it, and stays there until you press Enter. You get a chance
+to read it — and fix it — before it becomes a prompt.
+
+Set `AUTO_SUBMIT=true` for genuinely no-keypress operation. Do that once Whisper has
+earned your trust on the vocabulary you actually use: `tiny` is verified on counting,
+not on identifiers, file paths, or command names. Under auto-submit a misheard
+identifier becomes a prompt; under dictation it costs a keystroke to fix.
 
 **Use `tiny`.** Measured on this machine against 8s of real captured speech: `tiny`
 runs at RTF 0.20, `base` at 1.02. `base` transcribes in real time, which means waiting
@@ -64,3 +68,27 @@ Two behaviours look like faults and are not:
 - **Roughly 1.5 seconds of dead air at stream open.** This is why the interface holds
   one stream across wake and listen instead of reopening per utterance, and why a short
   test capture can read as total failure when the microphone is fine.
+
+## Launcher
+
+`listener/run.sh` is the intended entry point. It sets the input gain, warns if
+`CLAUDE_TMUX_TARGET` is unset (listing the panes available), and execs the listener
+under kaizen's venv.
+
+```bash
+tmux new -s voice                       # run claude in here
+CLAUDE_TMUX_TARGET=voice listener/run.sh   # in another terminal
+```
+
+## How a conversation flows
+
+1. Say the wake word — this cold-starts a conversation
+2. Speak; VAD ends your turn after `VAD_MIN_SILENCE_MS` of silence
+3. The transcript is typed into the pane (and submitted, if `AUTO_SUBMIT=true`)
+4. Narrator speaks the reply, and its daemon publishes a finished-speaking edge
+5. The mic reopens **only then** — never while Kokoro is talking, which is what
+   stops the listener hearing and resubmitting its own output
+6. Reply within `REPLY_TIMEOUT` seconds and it loops; stay quiet and it drops back
+   to the wake word
+
+A `🔇` silent turn publishes no edge, so the mic will not reopen. Say the wake word.

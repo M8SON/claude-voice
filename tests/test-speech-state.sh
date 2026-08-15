@@ -167,6 +167,45 @@ else
 fi
 
 echo ""
+echo "=== the listener watches the edge correctly ==="
+
+if python3 - "$SCRIPT_DIR/../listener" <<'PY'
+import sys, os, time, tempfile, threading
+sys.path.insert(0, sys.argv[1])
+import claude_listener as cl
+
+marker = os.path.join(tempfile.mkdtemp(), 'speech-finished')
+cl.SPEECH_FINISHED_FILE = marker
+
+# Never written: treated as "no edge yet", not as an error.
+assert cl.speech_finished_mtime() == 0.0, "absent marker should read 0"
+
+# No edge ever arrives: must time out rather than block forever, or a dead
+# narrator daemon would wedge the listener.
+assert cl.wait_for_speech_finished(0.0, timeout=0.6, poll=0.1) is None, "should time out"
+
+# An edge published after the baseline is detected.
+baseline = cl.speech_finished_mtime()
+def publish():
+    time.sleep(0.3)
+    with open(marker, 'w') as f:
+        f.write(str(time.time()))
+threading.Thread(target=publish, daemon=True).start()
+got = cl.wait_for_speech_finished(baseline, timeout=3, poll=0.1)
+assert got is not None and got > baseline, "should detect a new edge"
+
+# The edge from the PREVIOUS turn must not count as this turn's reply, or the
+# mic opens immediately and records the assistant still talking.
+stale = cl.speech_finished_mtime()
+assert cl.wait_for_speech_finished(stale, timeout=0.6, poll=0.1) is None, "stale edge counted"
+PY
+then
+    ok "edge watching: absent, timeout, detection, and stale rejection"
+else
+    bad "edge watching: absent, timeout, detection, and stale rejection" "see assertion above"
+fi
+
+echo ""
 echo "=============================="
 echo "Results: $PASS passed, $FAIL failed"
 if [[ $FAIL -gt 0 ]]; then
