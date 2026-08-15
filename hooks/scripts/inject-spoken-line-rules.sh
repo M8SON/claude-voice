@@ -55,11 +55,23 @@ Use a line of exactly "🔇" instead when the turn should be silent — memory
 bookkeeping, hook confirmations, and other housekeeping the user did not ask
 to hear.
 
-For progress on long operations and for errors that surface mid-turn, speak
-immediately rather than waiting for the end of the turn:
-  echo "Running the test suite now." | bash "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/speak.sh" --force
-Use this sparingly — only when silence would read as a hang, or when something
-broke that the user should know about before the turn ends.
+Speak mid-turn rather than waiting for the end of the turn:
+  echo "Reading the converter config now." | bash "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/speak.sh" --force
+
+Do this BEFORE you go quiet, not after. Concretely:
+- before any operation you expect to take more than about fifteen seconds — a
+  build, a test suite, a package install, a large download
+- before a multi-step search, a large file read, or a subagent dispatch, where
+  several tool calls pass with nothing printed to the terminal
+- the moment something breaks in a way that changes what you are about to do
+
+Say what you are about to do and roughly why it will take a moment. One short
+sentence. The user cannot see your tool calls, so from where they sit an
+unnarrated search is indistinguishable from a hang, and fifteen seconds of
+silence is long enough to assume something has crashed.
+
+Do not narrate individual quick tool calls — that is the per-tool chatter this
+fork exists to remove. The test is duration, not activity.
 EOF
 
 jq -n --arg ctx "$RULES" \
