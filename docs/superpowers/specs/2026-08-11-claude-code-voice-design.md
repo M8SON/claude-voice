@@ -164,7 +164,34 @@ feature, not our code.
 - **Mic passthrough is still dead**, `wsl --shutdown` still not performed. Measured with `rec`:
   ambient max 0.000153 / RMS 0.000014; **five seconds of continuous speech max 0.000275 / RMS
   0.000015**. Speech is indistinguishable from an empty room, confirming the channel carries no
-  signal rather than a weak one.
+  signal rather than a weak one. **(Resolved 2026-08-15 — see below.)**
+
+### Update 2026-08-15: microphone FIXED, input chain verified end to end
+
+`wsl --shutdown` was the fix. The stale-WSLg-session diagnosis was correct. Boot confirmed at
+08:52 (`uptime -s`) before trusting any measurement — always do this, since the whole 2026-08-14
+investigation ran against a 9-hour-old session.
+
+- **The mic works.** Confirmed by ear, not by number: a capture was played back through the
+  working output path and Mason heard his own voice. Numbers alone were misleading all day.
+- **Input gain must be reduced.** `RDPSource` defaults to 100% / 0 dB and clips hard — ambient
+  and speech both pinned at ~0.9995, indistinguishable. `pactl set-source-volume RDPSource 40%`
+  gives clean speech at max 0.066 / RMS 0.014, no clipping, ample headroom. **This is not
+  persistent across reboots** and must be set by whatever launches the listener.
+- **RDP does silence suppression.** When the room is quiet the channel delivers *literal zeros*
+  (RMS ~0.00001, a third of an LSB), not a noise floor, in multi-second blocks. This looks like a
+  broken stream and is not: 8s of continuous speech showed signal in every single one-second
+  slice with no dropouts. For VAD this is ideal — silence is unambiguous.
+- **~1.5s of dead air at stream open.** Every capture starts with roughly a second and a half of
+  zeros before audio flows, which is what made single short test captures read as total failure.
+  **Design consequence: hold the input stream open persistently** rather than opening it per
+  utterance, or the first ~1.5s of every reply is lost. kaizen's `VoiceInterface` already shares
+  one stream across wake and listen (`_shared_audio`/`_shared_stream`) for exactly this reason.
+- **STT verified against real captured audio**, not a synthetic fixture. `faster-whisper` 1.2.1,
+  `int8` on CPU, transcribing 8s of Mason counting to twenty:
+  - `tiny` — **1.59s, RTF 0.20**, correct (one spurious trailing word)
+  - `base` — 8.13s, RTF 1.02, correct but real-time, too slow to converse with
+  Choose `tiny`. Model load is ~5s once, then warm.
 - **`/voice` is not entitlement-gated — the capability does not exist.** Grepping the CLI bundle
   at `2.1.233` returns zero hits for `VOICE_HANDSFREE`, `handsFree`, `hands-free`, and
   `tap to toggle`; `hold space` appears 4 times. Claude Code's voice input is push-to-talk by
