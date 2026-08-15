@@ -13,8 +13,10 @@ faster-whisper — see listener/README.md.
 """
 
 import os
+import re
 import sys
 import logging
+import subprocess
 
 KAIZEN_ROOT = os.environ.get("KAIZEN_ROOT", "/home/daedalus/linux/kaizen")
 
@@ -36,9 +38,66 @@ VAD_RMS_THRESHOLD = int(os.environ.get("VAD_RMS_THRESHOLD", "1000"))
 VAD_MIN_SILENCE_MS = int(os.environ.get("VAD_MIN_SILENCE_MS", "700"))
 
 
+# Where to type. A tmux target like "voice:0.0" or a session name.
+TMUX_TARGET = os.environ.get("CLAUDE_TMUX_TARGET", "")
+
+
 def status(message):
     """Progress to stderr, keeping stdout to transcripts alone."""
     print(message, file=sys.stderr, flush=True)
+
+
+def strip_wake_phrase(text, phrase=WAKE_DISPLAY):
+    """Drop a leading wake phrase from a transcript.
+
+    listen() reuses the stream wait_for_wake_word() left open, so the wake
+    audio is still in the recording and Whisper transcribes it. Submitting
+    that verbatim would prefix every prompt with "Hey Jarvis,".
+    """
+    if not text:
+        return text
+    words = r"[\s,]+".join(re.escape(w) for w in phrase.split())
+    stripped = re.sub(rf"^\s*{words}\s*[,.!?:]*\s*", "", text, count=1, flags=re.IGNORECASE)
+    # Only accept the strip if something survives it — otherwise the whole
+    # utterance was the wake word and there is nothing to submit.
+    return stripped if stripped.strip() else text
+
+
+def tmux_target_exists(target):
+    """True only if target names a real pane or session, matched exactly.
+
+    Neither obvious builtin is safe here. `display-message -t` returns 0 for
+    ANY target, silently falling back to the current session, and
+    `has-session -t` prefix-matches, so "probe" resolves "probe-live". A wrong
+    answer means typing a spoken sentence into someone else's pane, so this
+    enumerates real panes and demands an exact match.
+    """
+    result = subprocess.run(
+        [
+            "tmux", "list-panes", "-a", "-F",
+            "#{session_name}:#{window_index}.#{pane_index}\t#{session_name}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+
+    for line in result.stdout.splitlines():
+        pane, _, session = line.partition("\t")
+        if target == pane or target == session:
+            return True
+    return False
+
+
+def submit_to_tmux(target, text):
+    """Type text into a tmux pane and press Enter.
+
+    -l sends the text literally. Without it tmux parses words like "Enter" or
+    "C-c" as key names, so a spoken sentence could send control keys.
+    """
+    subprocess.run(["tmux", "send-keys", "-t", target, "-l", text], check=True)
+    subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], check=True)
 
 
 def build_interface():
@@ -74,8 +133,21 @@ def build_interface():
 def main():
     logging.basicConfig(level=logging.ERROR)
 
+    # Fail before loading models, not after a minute of downloads.
+    if TMUX_TARGET and not tmux_target_exists(TMUX_TARGET):
+        status(
+            f"CLAUDE_TMUX_TARGET='{TMUX_TARGET}' does not resolve to a tmux pane.\n"
+            "Check it with: tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}'"
+        )
+        sys.exit(1)
+
     status("Loading models (first run downloads them)...")
     voice = build_interface()
+
+    if TMUX_TARGET:
+        status(f"Submitting into tmux target '{TMUX_TARGET}'.")
+    else:
+        status("CLAUDE_TMUX_TARGET unset — printing transcripts only, not submitting.")
     status(f"Ready. Say '{WAKE_DISPLAY}' to speak. Ctrl-C to stop.")
 
     try:
@@ -89,8 +161,13 @@ def main():
                 status("Nothing heard.")
                 continue
 
+            text = strip_wake_phrase(text)
+
             status("Transcribed:")
             print(text, flush=True)
+
+            if TMUX_TARGET:
+                submit_to_tmux(TMUX_TARGET, text)
     except KeyboardInterrupt:
         status("\nStopping.")
     finally:
