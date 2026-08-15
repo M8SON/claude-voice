@@ -43,6 +43,13 @@ All optional, all environment variables:
 | `STT_MODEL` | `tiny` | See below before changing |
 | `VAD_BACKEND` | `silero` | Or `rms` |
 | `VAD_MIN_SILENCE_MS` | `700` | How long a pause ends your turn |
+| `CLAUDE_TMUX_TARGET` | unset | tmux pane to type into. Unset = print only |
+| `AUTO_SUBMIT` | `true` | `false` types the text and waits for you to press Enter |
+
+**`AUTO_SUBMIT=false`** is the dictation mode: the transcript is typed into Claude
+Code's input line exactly as if you had typed it, and stays there until you press Enter.
+You get a chance to read it — and fix it — before it becomes a prompt. That costs one
+keypress and is the difference between hands-free and hands-nearly-free.
 
 **Use `tiny`.** Measured on this machine against 8s of real captured speech: `tiny`
 runs at RTF 0.20, `base` at 1.02. `base` transcribes in real time, which means waiting

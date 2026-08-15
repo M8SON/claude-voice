@@ -41,6 +41,11 @@ VAD_MIN_SILENCE_MS = int(os.environ.get("VAD_MIN_SILENCE_MS", "700"))
 # Where to type. A tmux target like "voice:0.0" or a session name.
 TMUX_TARGET = os.environ.get("CLAUDE_TMUX_TARGET", "")
 
+# When false, the transcript is typed into the input line and left there for
+# you to read and press Enter yourself. Costs a keypress; buys a review step
+# before a misheard sentence becomes a prompt.
+AUTO_SUBMIT = os.environ.get("AUTO_SUBMIT", "true").lower() not in ("false", "0", "no")
+
 
 def status(message):
     """Progress to stderr, keeping stdout to transcripts alone."""
@@ -90,14 +95,18 @@ def tmux_target_exists(target):
     return False
 
 
-def submit_to_tmux(target, text):
-    """Type text into a tmux pane and press Enter.
+def submit_to_tmux(target, text, auto_submit=True):
+    """Type text into a tmux pane, optionally pressing Enter after it.
 
     -l sends the text literally. Without it tmux parses words like "Enter" or
     "C-c" as key names, so a spoken sentence could send control keys.
+
+    With auto_submit false the text is left sitting in the input line exactly
+    as if it had been typed, and you press Enter yourself.
     """
     subprocess.run(["tmux", "send-keys", "-t", target, "-l", text], check=True)
-    subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], check=True)
+    if auto_submit:
+        subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], check=True)
 
 
 def build_interface():
@@ -144,8 +153,10 @@ def main():
     status("Loading models (first run downloads them)...")
     voice = build_interface()
 
-    if TMUX_TARGET:
+    if TMUX_TARGET and AUTO_SUBMIT:
         status(f"Submitting into tmux target '{TMUX_TARGET}'.")
+    elif TMUX_TARGET:
+        status(f"Typing into '{TMUX_TARGET}' without Enter — press it yourself.")
     else:
         status("CLAUDE_TMUX_TARGET unset — printing transcripts only, not submitting.")
     status(f"Ready. Say '{WAKE_DISPLAY}' to speak. Ctrl-C to stop.")
@@ -167,7 +178,7 @@ def main():
             print(text, flush=True)
 
             if TMUX_TARGET:
-                submit_to_tmux(TMUX_TARGET, text)
+                submit_to_tmux(TMUX_TARGET, text, auto_submit=AUTO_SUBMIT)
     except KeyboardInterrupt:
         status("\nStopping.")
     finally:

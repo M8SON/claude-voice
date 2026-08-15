@@ -123,6 +123,42 @@ do
 done
 
 echo ""
+echo "=== auto_submit=False types without sending ==="
+
+NOSEND="cvnosend-$$"
+NOSEND_OUT=$(mktemp)
+tmux new-session -d -s "$NOSEND" "cat > $NOSEND_OUT" 2>/dev/null
+
+python3 -c "
+import sys
+sys.path.insert(0, '$LISTENER_DIR')
+import claude_listener as cl
+cl.submit_to_tmux('$NOSEND', 'typed but not submitted', auto_submit=False)
+"
+
+# cat only receives a line once Enter is pressed, so an empty file proves the
+# text is still sitting in the input line.
+if [[ ! -s "$NOSEND_OUT" ]]; then
+    echo "  PASS: nothing is submitted without Enter"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: nothing is submitted without Enter"
+    echo "        received: $(cat "$NOSEND_OUT")"
+    FAIL=$((FAIL + 1))
+fi
+
+if tmux capture-pane -t "$NOSEND" -p 2>/dev/null | grep -Fq "typed but not submitted"; then
+    echo "  PASS: the text is visible in the pane, awaiting Enter"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: the text is visible in the pane, awaiting Enter"
+    FAIL=$((FAIL + 1))
+fi
+
+tmux kill-session -t "$NOSEND" 2>/dev/null || true
+rm -f "$NOSEND_OUT"
+
+echo ""
 echo "=== Target validation ==="
 
 # A session of its own: the one above is dead, because C-d ended its `cat`.
