@@ -47,13 +47,25 @@ constructs, selects `cpu:tiny (faster-whisper)`, and shuts down cleanly.
 `speak-daemon.py` knows when playback drains; nothing else can know it. Today it publishes
 no such state — only hush via `SIGUSR1` (`:65-72`).
 
-**Files:** modify `hooks/scripts/speak-daemon.py`; test `tests/test-speech-state.sh`
+**Files:** modify `speak-daemon.py`, `speak.sh`, `speak-response.sh`; test
+`tests/test-speech-state.sh`
 
-- [ ] Daemon touches `~/.claude-code-narrator/speech-finished` after the queue is empty
-      *and* the final utterance has finished playing. Mtime is the signal; contents unused.
-- [ ] Must not fire between queued utterances of the same turn — only on drain.
-- [ ] Verify: enqueue two utterances, assert the file's mtime changes exactly once, after
-      the second finishes.
+**Done 2026-08-15.** Drain detection was the wrong signal: a mid-turn
+`speak.sh --force` progress call also drains the queue, so it would have opened the
+microphone in the middle of a turn. The edge must mean *the turn ended*.
+
+- [x] `speak.sh` gains `--final`, which adds `"final":true` to the FIFO JSON. Flags parse
+      in any order and are never spoken as text.
+- [x] `speak-response.sh` passes `--final` on all three end-of-turn paths (marker, fallback,
+      plan mode). Mid-turn `--force` calls do not.
+- [x] The daemon writes `~/.claude-code-narrator/speech-finished` after `sd.wait()` returns
+      for an utterance marked final. Mtime is the signal; contents are an epoch timestamp.
+- [x] Verified against the running daemon: a non-final utterance leaves the file absent; a
+      final one creates it. Note `speak.sh` returns at enqueue, so any check must allow for
+      synthesis plus playback before reading the file.
+
+**Known gap:** a `🔇` turn never reaches the daemon, so it publishes no edge and the mic
+does not open. Task 4's wake-word fallback covers this — you say the wake word instead.
 
 **Risk:** this repo is a live dependency — the running `claude --plugin-dir .` session
 executes `speak-daemon.py` from this path. Restart the daemon deliberately after editing;

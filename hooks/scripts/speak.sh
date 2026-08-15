@@ -30,12 +30,16 @@ resolve_state() {
 }
 
 FORCE=false
+FINAL=false
 
 # Parse arguments
-if [[ "${1:-}" == "--force" ]]; then
-    FORCE=true
-    shift
-fi
+while [[ "${1:-}" == --* ]]; do
+    case "$1" in
+        --force) FORCE=true; shift ;;
+        --final) FINAL=true; shift ;;
+        *) break ;;
+    esac
+done
 
 # Get text from argument or stdin
 if [[ $# -gt 0 ]]; then
@@ -190,10 +194,13 @@ fi
 voice=$(resolve_state "voice" "af_heart")
 speed=$(resolve_state "speed" "1.1")
 
-# Build JSON message with per-utterance settings
-json_msg=$(printf '{"text":"%s","voice":"%s","speed":%s}' \
+# Build JSON message with per-utterance settings.
+# "final" marks the last utterance of a turn; the daemon publishes a
+# finished-speaking edge after playing it, which is what lets a hands-free
+# listener open the microphone without hearing its own output.
+json_msg=$(printf '{"text":"%s","voice":"%s","speed":%s,"final":%s}' \
     "$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | tr '\n' ' ')" \
-    "$voice" "$speed")
+    "$voice" "$speed" "$FINAL")
 
 # Write JSON to FIFO (with timeout in case daemon died)
 if command -v timeout >/dev/null 2>&1; then

@@ -14,6 +14,19 @@ import json
 NARRATOR_DIR = os.path.expanduser('~/.claude-code-narrator')
 STATE_FILE = os.path.join(NARRATOR_DIR, 'config')
 PID_FILE = os.path.join(NARRATOR_DIR, 'daemon.pid')
+# Touched after the last utterance of a turn finishes playing. The mtime is the
+# signal; the contents are unused. A hands-free listener watches this to know
+# when the speaker has gone quiet and the microphone can safely open.
+SPEECH_FINISHED_FILE = os.path.join(NARRATOR_DIR, 'speech-finished')
+
+
+def publish_speech_finished():
+    """Touch the finished-speaking file, ignoring any filesystem error."""
+    try:
+        with open(SPEECH_FINISHED_FILE, 'w') as f:
+            f.write(str(time.time()))
+    except OSError:
+        pass
 
 
 def read_state(key, default):
@@ -108,12 +121,14 @@ def main():
                 utterance_text = line
                 utterance_voice = None
                 utterance_speed = None
+                utterance_final = False
                 if line.startswith('{'):
                     try:
                         msg = json.loads(line)
                         utterance_text = msg.get('text', line)
                         utterance_voice = msg.get('voice')
                         utterance_speed = msg.get('speed')
+                        utterance_final = bool(msg.get('final'))
                     except json.JSONDecodeError:
                         pass  # treat as plain text
 
@@ -136,6 +151,12 @@ def main():
                     full_audio = np.concatenate(audio_chunks)
                     sd.play(full_audio, samplerate=24000)
                     sd.wait()
+
+                # Playback has drained. If this was the turn's last utterance,
+                # publish the edge — mid-turn progress calls do not set "final",
+                # so they never open a listener's microphone.
+                if utterance_final:
+                    publish_speech_finished()
             except Exception as e:
                 print(f"Speech error: {e}", file=sys.stderr)
 

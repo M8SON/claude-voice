@@ -33,7 +33,7 @@ if [[ $MARKER_STATUS -eq 2 ]]; then
 fi
 
 if [[ $MARKER_STATUS -eq 0 ]]; then
-    printf '%s\n' "$SPOKEN" | bash "$SCRIPT_DIR/speak.sh"
+    printf '%s\n' "$SPOKEN" | bash "$SCRIPT_DIR/speak.sh" --final
     exit 0
 fi
 
@@ -67,7 +67,7 @@ fi
 PERMISSION_MODE=$(printf '%s\n' "$HOOK_INPUT" | jq -r '.permission_mode // ""')
 
 if [[ "$PERMISSION_MODE" == "plan" ]]; then
-    printf '%s\n' "$CLEANED" | bash "$SCRIPT_DIR/speak.sh"
+    printf '%s\n' "$CLEANED" | bash "$SCRIPT_DIR/speak.sh" --final
 else
     if [[ ${#CLEANED} -le 1000 ]]; then
         SUMMARY="$CLEANED"
@@ -95,5 +95,5 @@ else
             }
         }')
     fi
-    printf '%s\n' "$SUMMARY" | bash "$SCRIPT_DIR/speak.sh"
+    printf '%s\n' "$SUMMARY" | bash "$SCRIPT_DIR/speak.sh" --final
 fi
