@@ -147,13 +147,36 @@ Audio was entirely non-functional at session start; all of it is now fixed excep
 Output-only work is unblocked regardless — the mic affects input only, and input is Claude Code's
 feature, not our code.
 
+### Update 2026-08-14
+
+- **`jq` was never installed.** Upstream's `speak-response.sh` parses the hook payload with it and
+  the README's Prerequisites never declares it, so the plugin could not have run here at all,
+  independent of audio. Installed via `sudo apt install -y jq` (1.7.1, `/usr/bin/jq`). Note `sudo`
+  cannot prompt from inside Claude Code — the `!` prefix provides no TTY.
+- **Output works end to end.** Kokoro installed, `/narrator:on` enabled, spoken line audible.
+  Measured on this x86 machine: **cold start 13.1s** (upstream claims ~10s), **warm enqueue 56ms
+  and 49ms** (upstream claims <50ms). The warm figure is FIFO enqueue only — synthesis and
+  playback happen afterwards in the daemon, so it is not perceived latency.
+- **The plan's cold-start recipe is wrong.** `pkill -f speak-daemon.py` matches its own command
+  line and kills the calling shell; use `pkill -f '[s]peak-daemon.py'`. The daemon also ignores
+  SIGTERM while blocked reading the FIFO and needs `kill -9`. Without both fixes the "cold"
+  measurement silently measures a still-running warm daemon.
+- **Mic passthrough is still dead**, `wsl --shutdown` still not performed. Measured with `rec`:
+  ambient max 0.000153 / RMS 0.000014; **five seconds of continuous speech max 0.000275 / RMS
+  0.000015**. Speech is indistinguishable from an empty room, confirming the channel carries no
+  signal rather than a weak one.
+- **`/voice` is not entitlement-gated — the capability does not exist.** Grepping the CLI bundle
+  at `2.1.233` returns zero hits for `VOICE_HANDSFREE`, `handsFree`, `hands-free`, and
+  `tap to toggle`; `hold space` appears 4 times. Claude Code's voice input is push-to-talk by
+  construction. Hands-free input cannot come from Claude Code and must be built outside it.
+
 ## Risks
 
-- **`/voice` may be entitlement-gated.** Claude Code's settings schema marks it
-  `@internal ... gated at read sites by feature(VOICE_HANDSFREE). Hidden from public SDK types
-  until external launch.` It also requires a Claude.ai account, not an API key. If the gate is
-  closed for this account, the input half needs a different source (kaizen already has Whisper).
-  **Verify before depending on it.**
+- ~~**`/voice` may be entitlement-gated.**~~ **Resolved 2026-08-14: worse than gated — absent.**
+  The settings schema still references `feature(VOICE_HANDSFREE)`, but no such string exists in the
+  shipped bundle, and neither does any hands-free or tap-to-toggle affordance. Voice input is
+  push-to-talk only. The input half must come from kaizen's Whisper stack; see the Environment
+  update above.
 - **Discipline dependency.** The spoken line only exists if the assistant emits it. The fallback
   truncation bounds the damage to "verbose", never "silent".
 - **`wsl --shutdown` is disruptive** and unverified as the mic fix.
