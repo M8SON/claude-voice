@@ -1,5 +1,15 @@
 # Hands-Free Voice Input — Implementation Plan
 
+> **Status 2026-08-15: all five tasks implemented, 51 tests green.** Every piece is
+> verified individually — wake word and transcription live by ear, tmux submission
+> against a real pane, the finished-speaking edge against the running daemon. What has
+> NOT been done is the full loop end to end: talking to Claude Code and answering it
+> back without touching the keyboard. See Verification below.
+>
+> Two changes from the plan as written, both forced by what the code turned out to do:
+> Task 1 marks the utterance rather than detecting drain, and target validation
+> enumerates panes because `display-message -t` accepts anything.
+
 **Goal:** Talk to Claude Code and have it answer, with no keypress at any point — no
 hold-space, no Enter. Narrator already owns the output half; this is the input half.
 
