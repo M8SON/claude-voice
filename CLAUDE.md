@@ -79,4 +79,6 @@ Per-directory local state (optional):
 
 Changes to hook scripts must be copied to the plugin cache (`~/.claude/plugins/cache/claude-code-narrator/narrator/<version>/`) for testing, since hooks run from the cache path, not the source repo. `/reload-plugins` does not refresh the cache unless the version changes.
 
-The `UserPromptSubmit` hook for auto-hush is registered in `~/.claude/settings.json` (not in `hooks/hooks.json`) because it needs to persist across sessions and is managed by the `/narrator:on` and `/narrator:off` commands.
+All hooks, auto-hush included, are declared in `hooks/hooks.json`. Upstream registers the `UserPromptSubmit` auto-hush hook in `~/.claude/settings.json` instead, on the assumption that narrator is installed globally.
+
+This fork does not do that, and must not. Voice here exists only in sessions started by `claude-voice`, which loads the plugin with `--plugin-dir`. A user-settings registration fires in *every* session, including plain `claude` ones with no voice at all — and because the hook signals the shared speech daemon, typing in one of those cuts off a reply being spoken by a voice session in another terminal. `tests/test-hook-scope.sh` pins this: no command or skill may write a `UserPromptSubmit` block into user settings.

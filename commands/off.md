@@ -28,13 +28,11 @@ To remove the local override entirely (reverting to global state), delete the `<
 
 IMPORTANT: Do NOT use `sed` to edit state files — use the Read and Edit tools instead.
 
-## Step 3: Remove Auto-Hush Hook (global mode only)
+## Step 3: Auto-Hush — nothing to do
 
-Only for global mode: Read `~/.claude/settings.json`. If it has a `UserPromptSubmit` hook that runs `hush-on-input.sh`, remove that entire `UserPromptSubmit` entry from the `hooks` object. Preserve all other hooks.
-
-For local mode, do NOT remove the auto-hush hook (other sessions may still need it).
-
-IMPORTANT: Do NOT remove other hooks — only remove the narrator `UserPromptSubmit` hook. Read the file first.
+Auto-hush lives in the plugin's `hooks/hooks.json` and is not registered in
+user settings, so there is nothing to unregister. The hook reads the enabled
+state itself and does nothing while narrator is off.
 
 ## Step 4: Confirm
 

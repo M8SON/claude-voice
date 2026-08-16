@@ -1,6 +1,17 @@
 {
-  "description": "Voice output hooks: deliberate spoken line on turn end, plus notifications",
+  "description": "Voice hooks: deliberate spoken line on turn end, notifications, and auto-hush. All scoped to plugin sessions — a plain claude session stays plain.",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/hush-on-input.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

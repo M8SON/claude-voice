@@ -32,27 +32,16 @@ Read `<cwd>/.claude-code-narrator/config`. If the file exists, use the Edit tool
 
 IMPORTANT: Do NOT use `sed` to edit state files — use the Read and Edit tools instead.
 
-## Step 3: Register Auto-Hush Hook
+## Step 3: Auto-Hush — nothing to do
 
-Read `~/.claude/settings.json`. If it does not have a `UserPromptSubmit` hook that runs `hush-on-input.sh`, add one. This hook silences speech when the user provides input.
+Auto-hush is declared in the plugin's own `hooks/hooks.json`, so it is already
+active in any session that loaded this plugin, and absent from any session that
+did not. Do NOT add it to `~/.claude/settings.json`.
 
-Use the Edit tool to add the following to the `hooks` object in `~/.claude/settings.json` (create the `hooks` key if it doesn't exist, and merge with any existing hooks):
-
-```json
-"UserPromptSubmit": [
-  {
-    "hooks": [
-      {
-        "type": "command",
-        "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/hush-on-input.sh",
-        "timeout": 3
-      }
-    ]
-  }
-]
-```
-
-IMPORTANT: Do NOT replace existing hooks — merge with them. Read the file first.
+A user-settings registration would fire in EVERY session, including plain
+`claude` ones with no voice at all — and since the hook signals the shared
+speech daemon, typing in one of those would cut off a reply being spoken by a
+voice session in another terminal.
 
 ## Step 4: Confirm
 
