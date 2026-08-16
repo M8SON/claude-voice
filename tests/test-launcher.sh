@@ -114,22 +114,36 @@ check "it has two panes — Claude and the listener" \
     "2" \
     "$(tmux list-panes -t voice-myproject 2>/dev/null | wc -l | tr -d ' ')"
 
-# The listener must be told a target that its own validator accepts, which is
-# session:window.pane — not a tmux pane id, which would silently never match.
-# -J joins wrapped lines: the command is longer than the pane is wide.
-if tmux capture-pane -p -J -t voice-myproject:0.1 2>/dev/null \
-    | grep -q 'CLAUDE_TMUX_TARGET=voice-myproject:0\.0'; then
+# Read what the listener process actually received, not what is on screen.
+# capture-pane only sees the visible region, so an 8-line pane plus a
+# once-a-day login banner scrolls the command out of view and the assertion
+# fails for reasons that have nothing to do with the launcher.
+listener_env() {
+    local pid
+    for _ in $(seq 1 40); do
+        pid=$(pgrep -f "$FAKE_KAIZEN/.venv/bin/python" | head -1)
+        [[ -n "$pid" ]] && break
+        sleep 0.25
+    done
+    [[ -n "$pid" ]] && tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null
+}
+
+env_dump=$(listener_env)
+
+# The target must be one the listener's own validator accepts —
+# session:window.pane, not a tmux pane id, which would silently never match.
+if grep -qx 'CLAUDE_TMUX_TARGET=voice-myproject:0\.0' <<< "$env_dump"; then
     ok "the listener is pointed at the Claude pane"
 else
     bad "the listener is pointed at the Claude pane" \
-        "$(tmux capture-pane -p -J -t voice-myproject:0.1 2>/dev/null)"
+        "$(grep -E 'CLAUDE_TMUX_TARGET|^$' <<< "$env_dump" | head -3)"
 fi
 
-if tmux capture-pane -p -J -t voice-myproject:0.1 2>/dev/null \
-    | grep -q 'AUTO_SUBMIT=true'; then
+if grep -qx 'AUTO_SUBMIT=true' <<< "$env_dump"; then
     ok "transcripts are submitted by default"
 else
-    bad "transcripts are submitted by default" "AUTO_SUBMIT=true not found"
+    bad "transcripts are submitted by default" \
+        "$(grep AUTO_SUBMIT <<< "$env_dump" || echo 'AUTO_SUBMIT not in the environment')"
 fi
 
 echo ""
