@@ -9,7 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KAIZEN_ROOT="${KAIZEN_ROOT:-/home/daedalus/linux/kaizen}"
+KAIZEN_ROOT="${KAIZEN_ROOT:-$HOME/linux/kaizen}"
 VENV_PYTHON="$KAIZEN_ROOT/.venv/bin/python"
 
 # Capture gain. RDPSource comes up at 100%, where it clips so hard that speech

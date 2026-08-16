@@ -17,7 +17,7 @@ set -euo pipefail
 
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
-KAIZEN_ROOT="${KAIZEN_ROOT:-/home/daedalus/linux/kaizen}"
+KAIZEN_ROOT="${KAIZEN_ROOT:-$HOME/linux/kaizen}"
 NARRATOR_CONFIG="$HOME/.claude-code-narrator/config"
 
 # The listener pane only prints status lines, so it gets the smaller half.

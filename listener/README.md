@@ -23,7 +23,7 @@ openWakeWord, Silero VAD, faster-whisper — and only supplies the wiring.
 ## Run it
 
 ```bash
-/home/daedalus/linux/kaizen/.venv/bin/python listener/claude_listener.py
+$HOME/linux/kaizen/.venv/bin/python listener/claude_listener.py
 ```
 
 Transcripts go to stdout, one per line; status goes to stderr.
@@ -37,7 +37,7 @@ All optional, all environment variables:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `KAIZEN_ROOT` | `/home/daedalus/linux/kaizen` | Where to import the voice stack from |
+| `KAIZEN_ROOT` | `$HOME/linux/kaizen` | Where to import the voice stack from |
 | `WAKE_MODEL` | `hey_jarvis` | Any openWakeWord model name |
 | `WAKE_THRESHOLD` | `0.5` | Lower catches more, and more false positives |
 | `STT_MODEL` | `tiny` | See below before changing |

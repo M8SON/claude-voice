@@ -23,7 +23,8 @@ import array
 import logging
 import subprocess
 
-KAIZEN_ROOT = os.environ.get("KAIZEN_ROOT", "/home/daedalus/linux/kaizen")
+KAIZEN_ROOT = os.environ.get(
+    "KAIZEN_ROOT", os.path.expanduser("~/linux/kaizen"))
 
 # kaizen is imported, never copied. Its modules resolve as `core.*`.
 if KAIZEN_ROOT not in sys.path:
