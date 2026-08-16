@@ -209,5 +209,14 @@ already shipped and started dropping a real "Yes."
 
 ## License
 
-MIT. Copyright (c) 2026 Shreyas Rao for the original work; see `LICENSE`, which
-applies to this fork in full.
+MIT, and two copyright holders — see `LICENSE`.
+
+- **Copyright (c) 2026 Shreyas Rao** — the original
+  [claude-code-narrator](https://github.com/shreyas-s-rao/claude-code-narrator):
+  the Kokoro pipeline, the speech daemon, the slash commands, the per-directory
+  config.
+- **Copyright (c) 2026 Mason Misch** — the work added here: the hands-free
+  listener, the finished-speaking edge, the hallucination filter, the launcher,
+  and the changes to how the spoken line is chosen.
+
+The same MIT terms cover both. Forking this carries both notices forward.
