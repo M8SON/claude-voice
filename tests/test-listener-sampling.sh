@@ -9,9 +9,11 @@
 # threshold has to come from measured audio levels, and the levels have to come
 # from Mason's own voice rather than a guess.
 #
-# Until there is enough data the rows are observation only: listen_and_log must
-# return exactly what voice.listen() would, including its len<3 -> None rule.
-# Instrumentation that changes behaviour would poison the samples it collects.
+# The rows since paid for themselves: they produced the peak floor in
+# test-hallucination-filter.sh. What this suite still pins is that everything
+# clearing that floor behaves exactly as voice.listen() did, len<3 rule
+# included — the gate is the only thing allowed to change an outcome, and the
+# rows keep being written either way.
 #
 # Run: bash tests/test-listener-sampling.sh
 
@@ -163,7 +165,7 @@ check "the row records the text, so hallucinations can be told apart" \
     "$(jq -r '.row.text' <<< "$row")"
 
 echo ""
-echo "=== Observation only — behaviour must match voice.listen() ==="
+echo "=== Above the floor, behaviour still matches voice.listen() ==="
 
 # kaizen's listen() drops anything under 3 characters. "You" is exactly 3 and
 # survives, which is why a length filter cannot solve this.

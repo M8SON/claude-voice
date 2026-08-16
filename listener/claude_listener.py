@@ -81,6 +81,16 @@ SAMPLE_LOG = os.environ.get(
     os.path.expanduser("~/.claude-code-narrator/voice-samples.jsonl"),
 )
 
+# Peak amplitude an utterance must reach to count as speech. Measured at 40%
+# input gain: the loudest silent window reached 0.035, the quietest real
+# utterance ("Yes.") reached 0.05093. This sits between them, 1.20x above the
+# first and 1.21x below the second.
+#
+# PEAK, not RMS. "Yes." measures RMS 0.00255 — BELOW a silent window's 0.0033 —
+# because a short word carries full amplitude but little average energy. An RMS
+# gate would drop exactly the short commands this is meant to protect.
+MIN_SPEECH_PEAK = float(os.environ.get("MIN_SPEECH_PEAK", "0.042"))
+
 
 def status(message):
     """Progress to stderr, keeping stdout to transcripts alone."""
@@ -106,7 +116,18 @@ def measure_wav(path):
     return peak, rms
 
 
-def write_sample(mode, peak, rms, endpoint, text, returned):
+def is_probably_speech(peak, endpoint):
+    """True when an utterance looks like someone talking rather than a room.
+
+    Both conditions are needed. The VAD endpoint alone leaks — one staged
+    silent window in five fired it and produced "I'm going to take a picture."
+    The level alone is not enough either, since a door slam is loud and is not
+    speech.
+    """
+    return bool(endpoint) and peak >= MIN_SPEECH_PEAK
+
+
+def write_sample(mode, peak, rms, endpoint, text, returned, blocked=None):
     """Append one measurement row.
 
     Swallows every filesystem error on purpose: this is instrumentation, and
@@ -124,6 +145,7 @@ def write_sample(mode, peak, rms, endpoint, text, returned):
                 "len": len(text),
                 "text": text,
                 "returned": returned is not None,
+                "blocked": blocked,
             }) + "\n")
     except OSError:
         pass
@@ -158,9 +180,16 @@ def listen_and_log(voice, mode, max_wait_seconds=0):
             pass
 
     text = raw.strip() if raw else ""
-    returned = text if len(text) >= 3 else None
+    if is_probably_speech(peak, fired):
+        blocked = None
+        returned = text if len(text) >= 3 else None
+    else:
+        # Recorded rather than discarded silently: if the floor is ever wrong,
+        # the dropped utterance has to be recoverable from the log.
+        blocked = "level" if peak < MIN_SPEECH_PEAK else "endpoint"
+        returned = None
 
-    write_sample(mode, peak, rms, fired, text, returned)
+    write_sample(mode, peak, rms, fired, text, returned, blocked)
     return returned
 
 
