@@ -34,8 +34,22 @@ WAKE_MODEL = os.environ.get("WAKE_MODEL", "hey_jarvis")
 WAKE_THRESHOLD = float(os.environ.get("WAKE_THRESHOLD", "0.5"))
 WAKE_DISPLAY = os.environ.get("WAKE_DISPLAY", "hey jarvis")
 
-# tiny, not base: measured RTF 0.20 against 1.02 on this machine. base is
-# real-time, which is too slow to hold a conversation with.
+# Measured 2026-08-16 on this machine (Ryzen 7 250, int8 CPU, language="en",
+# kaizen's exact settings) against 18.6s of speech:
+#
+#   tiny   RTF 0.03   0.79 GB
+#   base   RTF 0.06   0.91 GB
+#   small  RTF 0.14   1.38 GB
+#
+# None of them is close to real-time here; even small adds about half a second
+# to a normal utterance. An earlier comment claimed base measured RTF 1.02 "on
+# this machine" and was therefore too slow to converse with — that figure came
+# from the Raspberry Pi kaizen targets and followed the code across when its
+# backends were imported. It is off by a factor of seventeen here.
+#
+# tiny remains the default because it is the one verified in live use. Raising
+# it is a latency question worth about half a second, not a feasibility one:
+#   STT_MODEL=small claude-voice
 STT_MODEL = os.environ.get("STT_MODEL", "tiny")
 
 VAD_BACKEND = os.environ.get("VAD_BACKEND", "silero")
