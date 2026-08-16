@@ -1,13 +1,42 @@
-# Narrator - Voice Output Plugin for Claude Code
+# claude-voice — talk to Claude Code, hear it answer
 
 ![Claude Code Narrator](assets/banner.png)
 
-A Claude Code plugin that speaks responses aloud using [Kokoro](https://github.com/hexgrad/kokoro) TTS, a local neural text-to-speech engine. No cloud APIs, no latency — everything runs on your machine.
+Hands-free voice for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+Say a wake word, speak, and hear the reply — then just keep talking. Everything runs
+locally: [Kokoro](https://github.com/hexgrad/kokoro) for speech,
+[openWakeWord](https://github.com/dscripka/openWakeWord), Silero VAD and
+faster-whisper for listening. No cloud APIs.
+
+```bash
+cd ~/any/project
+claude-voice
+```
+
+Then say **"hey jarvis"** and talk. When the reply finishes speaking, the microphone
+reopens on its own — follow-ups need no wake word. Stay quiet for twelve seconds and
+it drops back to waiting for one.
+
+```
+Microphone → wake word → Whisper → tmux pane → Claude Code
+                                                    ↓
+    microphone reopens ← finished-speaking edge ← Kokoro → speaker
+```
+
+The loop closes on that **finished-speaking edge**: a marker the speech daemon
+touches once a turn's last utterance has actually finished playing. Opening the
+microphone on that signal — and only then — is what stops the listener transcribing
+Claude's own voice and submitting it back as a new prompt.
+
+See [Hands-free voice](#hands-free-voice-fork-addition) for the commands, and
+[`listener/README.md`](listener/README.md) for the input half's internals.
 
 ## Fork notes
 
-This is a fork of [claude-code-narrator](https://github.com/shreyas-s-rao/claude-code-narrator)
-(MIT © 2026 Shreyas Rao) with three changes:
+A fork of [claude-code-narrator](https://github.com/shreyas-s-rao/claude-code-narrator)
+(MIT © 2026 Shreyas Rao). Upstream speaks; this fork also listens.
+
+**Output — changes to how it speaks:**
 
 1. **Spoken-line contract.** Instead of reading the first ~1000 characters of a response, it
    speaks a line the assistant writes deliberately: a final line prefixed `🔊 `, compressed for
@@ -18,14 +47,44 @@ This is a fork of [claude-code-narrator](https://github.com/shreyas-s-rao/claude
    spoken deliberately via `speak.sh --force`.
 3. **`SessionStart` rules injection.** The contract is taught to the assistant at session start,
    gated on voice being enabled.
+4. **The daemon is warmed at `SessionStart`.** Loading Kokoro takes ~13s and the `Stop` hook's
+   budget is 10s, so on a cold daemon the first turn was killed mid-load: silent, and with no
+   finished-speaking edge to reopen the microphone. The load now happens off the critical path.
+
+**Input — new in this fork:**
+
+5. **A hands-free listener** (`listener/`), built on kaizen's voice backends. Claude Code's own
+   voice input is push-to-talk by construction, so input is built outside it.
+6. **The finished-speaking edge**, published by the daemon after a turn's last utterance drains,
+   so the microphone can reopen without hearing the assistant.
+7. **A hallucination filter.** Whisper transcribes an empty room as speech — six silent windows
+   produced *"Love it, love it, love it."* and a 111-character run-on. Neither transcript length
+   nor audio level separates those from real speech (a quiet "Yes." measures below a loud silent
+   room), so the VAD endpoint decides, with a level floor only as a backstop.
+8. **`claude-voice`**, a launcher that starts Claude in the current directory with a listener
+   already wired to it, one session per project.
+
+Every hook is declared in `hooks/hooks.json`, so a plain `claude` session has no voice at all —
+voice exists only in sessions started by `claude-voice`.
 
 Upstream is retained as the `upstream` git remote.
 
 ## Prerequisites
 
+For speaking:
+
 - Python 3.9+ (tested on 3.13)
 - macOS or Linux with audio output (speakers or headphones)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+
+Additionally, for listening:
+
+- A working microphone
+- `tmux` — the listener types transcripts into a pane, which is how you reach
+  another process's terminal at all
+- [kaizen](https://github.com/M8SON/kaizen)'s venv, for the wake-word, VAD and
+  transcription backends. No voice code is duplicated here; they are imported.
+  Point `KAIZEN_ROOT` at that checkout (default `~/linux/kaizen`).
 
 ## Installation
 
