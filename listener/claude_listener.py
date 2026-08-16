@@ -225,7 +225,13 @@ def main():
                     continue
             else:
                 if not voice.wait_for_wake_word():
-                    continue
+                    # kaizen catches Ctrl-C inside wait_for_wake_word and
+                    # reports it as False instead of re-raising, so it never
+                    # reaches the handler below. False has no other meaning —
+                    # detection is the only other way out of that loop.
+                    # Continuing here would reopen the mic and leave the
+                    # listener stoppable only by SIGTERM.
+                    raise KeyboardInterrupt
                 status("Listening...")
                 text = voice.listen()
                 if not text:
