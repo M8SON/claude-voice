@@ -154,6 +154,72 @@ Add `--local` to `on`, `off`, `cast` or `speed` to apply the setting to the curr
 directory only, via `<cwd>/.claude-code-narrator/config`. Local settings win over
 global ones per key; anything unset falls back.
 
+## Tuning
+
+Set any of these when launching; the launcher forwards them to the listener.
+
+```bash
+STT_MODEL=small claude-voice        # more accurate transcription
+REPLY_TIMEOUT=20 claude-voice       # longer pause before it stops listening
+WAKE_MODEL=alexa claude-voice       # a different wake word
+```
+
+Set `WAKE_DISPLAY` to match when you change `WAKE_MODEL` — it is both what the
+listener prints and the phrase stripped off the front of a transcript, since the
+wake audio is still in the recording:
+
+```bash
+WAKE_MODEL=hey_mycroft WAKE_DISPLAY="hey mycroft" claude-voice
+```
+
+### Transcription model
+
+`STT_MODEL` selects the faster-whisper model: `tiny` (default), `base`, `small`,
+`medium`, `large-v3`. Bigger models hear identifiers and file paths more reliably;
+they cost latency after you stop speaking, and memory.
+
+Measured on one machine — a Ryzen 7 250 under WSL2, int8 on CPU, against 18.6
+seconds of speech. Treat as a shape, not a promise:
+
+| `STT_MODEL` | RTF | 4-second utterance | peak RSS |
+|---|---|---|---|
+| `tiny` (default) | 0.03 | ~0.13 s | 0.79 GB |
+| `base` | 0.06 | ~0.24 s | 0.91 GB |
+| `small` | 0.14 | ~0.56 s | 1.38 GB |
+
+Nothing there is close to real-time, so this is a question of tenths of a second
+rather than of feasibility. Memory is the tighter constraint: the Kokoro daemon
+holds ~2.2 GB of its own, so on a machine with 8 GB, `small` fits comfortably and
+`medium` starts competing with it.
+
+Bigger models also take longer to load the first time — `small` took ~15 seconds on
+first use, before it was cached — which lands on listener startup, not on each
+utterance.
+
+A larger model will not stop Whisper inventing sentences out of room noise; every
+size does that. The VAD-endpoint filter is what handles those.
+
+### Everything else
+
+| Variable | Default | What it does |
+|---|---|---|
+| `WAKE_MODEL` | `hey_jarvis` | openWakeWord model — `hey_jarvis`, `alexa`, `hey_mycroft`, `hey_marvin` ship with it |
+| `WAKE_THRESHOLD` | `0.5` | Higher = fewer false wakes, more missed ones |
+| `WAKE_DISPLAY` | `hey jarvis` | The phrase shown, and stripped from transcripts |
+| `VAD_BACKEND` | `silero` | `silero` or `rms` |
+| `VAD_THRESHOLD` | `0.5` | Speech/silence sensitivity |
+| `VAD_MIN_SILENCE_MS` | `700` | Silence needed before an utterance is considered over |
+| `REPLY_TIMEOUT` | `12` | Seconds the microphone stays open for a follow-up |
+| `EDGE_TIMEOUT` | `300` | Seconds to wait for a spoken reply before falling back to the wake word |
+| `MIN_SPEECH_PEAK` | `0.006` | Level backstop for the hallucination filter |
+| `VOICE_SAMPLE_LOG` | `~/.claude-code-narrator/voice-samples.jsonl` | Where per-utterance measurements are written |
+| `KAIZEN_ROOT` | `~/linux/kaizen` | Where the voice backends are imported from |
+
+Every utterance is logged to `VOICE_SAMPLE_LOG` with its peak, RMS, whether the VAD
+endpoint fired, the transcript, and whether it was submitted or dropped. That file
+is how to judge a change to any of these against real speech rather than by
+impression — and how a dropped utterance is recovered rather than merely felt.
+
 ## How it works
 
 ```
