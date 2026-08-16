@@ -15,7 +15,11 @@ faster-whisper — see listener/README.md.
 import os
 import re
 import sys
+import math
+import json
 import time
+import wave
+import array
 import logging
 import subprocess
 
@@ -64,9 +68,100 @@ TMUX_TARGET = os.environ.get("CLAUDE_TMUX_TARGET", "")
 AUTO_SUBMIT = os.environ.get("AUTO_SUBMIT", "false").lower() in ("true", "1", "yes")
 
 
+# One measurement row per utterance, for calibrating a hallucination filter.
+# Whisper tiny invents whole sentences from room noise: six silent windows on
+# 2026-08-16 produced "Love it, love it, love it.", "It's done." and a
+# 111-character run-on, five of six long enough to survive kaizen's len<3 rule.
+# Transcript length cannot separate those from real speech — the hallucinations
+# are LONGER than "stop" — and the VAD endpoint leaked on one silent window in
+# five. Measured audio level did separate them, so the rows exist to set that
+# threshold against real use instead of a guess.
+SAMPLE_LOG = os.environ.get(
+    "VOICE_SAMPLE_LOG",
+    os.path.expanduser("~/.claude-code-narrator/voice-samples.jsonl"),
+)
+
+
 def status(message):
     """Progress to stderr, keeping stdout to transcripts alone."""
     print(message, file=sys.stderr, flush=True)
+
+
+def measure_wav(path):
+    """Peak and RMS of a 16-bit mono WAV, as fractions of full scale.
+
+    Deliberately stdlib-only, like the rest of this module's import surface, so
+    the tests run under the system python without kaizen's venv.
+    """
+    with wave.open(path, "rb") as wf:
+        raw = wf.readframes(wf.getnframes())
+    if not raw:
+        return 0.0, 0.0
+    samples = array.array("h")
+    samples.frombytes(raw)
+    if not samples:
+        return 0.0, 0.0
+    peak = max(abs(s) for s in samples) / 32768.0
+    rms = math.sqrt(sum(s * s for s in samples) / len(samples)) / 32768.0
+    return peak, rms
+
+
+def write_sample(mode, peak, rms, endpoint, text, returned):
+    """Append one measurement row.
+
+    Swallows every filesystem error on purpose: this is instrumentation, and
+    instrumentation must not be able to take voice input down.
+    """
+    try:
+        os.makedirs(os.path.dirname(SAMPLE_LOG), exist_ok=True)
+        with open(SAMPLE_LOG, "a") as f:
+            f.write(json.dumps({
+                "ts": time.time(),
+                "mode": mode,
+                "peak": round(peak, 5),
+                "rms": round(rms, 5),
+                "endpoint": endpoint,
+                "len": len(text),
+                "text": text,
+                "returned": returned is not None,
+            }) + "\n")
+    except OSError:
+        pass
+
+
+def listen_and_log(voice, mode, max_wait_seconds=0):
+    """What voice.listen() returns, plus a measurement row for the utterance.
+
+    Matches listen() exactly, its "under three characters means nothing was
+    said" rule included. That equivalence is the point: a filter that changed
+    behaviour now would poison the samples being collected to design it.
+
+    Reaches past listen() into _record_until_silence/_transcribe because
+    listen() discards the recording, and the recording is the measurement.
+    """
+    fired = False
+
+    def on_speech_done():
+        nonlocal fired
+        fired = True
+
+    path = voice._record_until_silence(
+        max_wait_seconds=max_wait_seconds, on_speech_done=on_speech_done
+    )
+    try:
+        peak, rms = measure_wav(path)
+        raw = voice._transcribe(path)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    text = raw.strip() if raw else ""
+    returned = text if len(text) >= 3 else None
+
+    write_sample(mode, peak, rms, fired, text, returned)
+    return returned
 
 
 def strip_wake_phrase(text, phrase=WAKE_DISPLAY):
@@ -218,7 +313,7 @@ def main():
                     in_conversation = False
                     continue
                 status("Listening for your reply...")
-                text = voice.listen(max_wait_seconds=REPLY_TIMEOUT)
+                text = listen_and_log(voice, "followup", max_wait_seconds=REPLY_TIMEOUT)
                 if not text:
                     status("Nothing heard — say the wake word to resume.")
                     in_conversation = False
@@ -233,7 +328,7 @@ def main():
                     # listener stoppable only by SIGTERM.
                     raise KeyboardInterrupt
                 status("Listening...")
-                text = voice.listen()
+                text = listen_and_log(voice, "wake")
                 if not text:
                     status("Nothing heard.")
                     continue

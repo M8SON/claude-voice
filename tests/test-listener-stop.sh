@@ -63,15 +63,20 @@ class FakeVoice:
             raise SystemExit(3)
         return WAKE_RETURNS
 
-    def listen(self, max_wait_seconds=0):
-        self.listen_calls += 1
-        return LISTEN_RETURNS
-
     def shutdown(self):
         self.shutdown_called = True
 
 fake = FakeVoice()
 cl.build_interface = lambda: fake
+
+# Stubbed at listen_and_log rather than on the fake, so this suite stays about
+# stopping and does not have to grow a WAV writer every time the audio seam
+# moves. What it must keep exercising is the loop's own control flow.
+def fake_listen(voice, mode, max_wait_seconds=0):
+    voice.listen_calls += 1
+    return LISTEN_RETURNS
+
+cl.listen_and_log = fake_listen
 cl.TMUX_TARGET = ''
 cl.main()
 print('RETURNED')
