@@ -10,3 +10,6 @@ build/
 *~
 dev/
 .claude-code-narrator
+
+# Personal working journal — local only, deliberately untracked.
+PHILOSOPHY.md
