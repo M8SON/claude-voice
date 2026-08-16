@@ -1,7 +1,5 @@
 # claude-voice — talk to Claude Code, hear it answer
 
-![Claude Code Narrator](assets/banner.png)
-
 Hands-free voice for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 Say a wake word, speak, and hear the reply — then just keep talking. Everything runs
 locally: [Kokoro](https://github.com/hexgrad/kokoro) for speech,
