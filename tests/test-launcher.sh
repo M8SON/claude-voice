@@ -192,6 +192,51 @@ fi
 
 teardown
 
+# speak.sh resolves "enabled" local-then-global via resolve_state, and
+# /narrator:off --local writes a per-directory config. A preflight that reads
+# only the global file passes, builds the session, and then nothing speaks —
+# and because the microphone reopens on the finished-speaking edge, the
+# listener waits out the full 300s EDGE_TIMEOUT. That is the exact
+# "apparent deadness" this check exists to prevent.
+
+setup
+mkdir -p "$PROJECT/.claude-code-narrator"
+printf 'enabled=false\n' > "$PROJECT/.claude-code-narrator/config"
+out=$(launch --background); rc=$?
+
+check "a locally disabled narrator exits non-zero" "1" "$rc"
+
+if grep -q -- "--local" <<< "$out"; then
+    ok "the error points at the per-directory config"
+else
+    bad "the error points at the per-directory config" "got: $out"
+fi
+
+if tmux has-session -t voice-myproject 2>/dev/null; then
+    bad "no session is built when output is locally off" "a session was created"
+else
+    ok "no session is built when output is locally off"
+fi
+
+teardown
+
+# The reverse must also hold: local wins, so local=true over a global=false
+# is a working configuration and must not be refused.
+setup
+printf 'enabled=false\n' > "$FAKE_HOME/.claude-code-narrator/config"
+mkdir -p "$PROJECT/.claude-code-narrator"
+printf 'enabled=true\n' > "$PROJECT/.claude-code-narrator/config"
+launch --background >/dev/null 2>&1
+
+if tmux has-session -t voice-myproject 2>/dev/null; then
+    ok "a local override turning it ON is honoured"
+else
+    bad "a local override turning it ON is honoured" \
+        "refused a directory where speech would actually work"
+fi
+
+teardown
+
 echo ""
 echo "=============================="
 echo "Results: $PASS passed, $FAIL failed"

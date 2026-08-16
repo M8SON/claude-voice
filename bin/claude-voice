@@ -74,15 +74,31 @@ preflight() {
         return 1
     fi
 
+    # Mirrors resolve_state() in speak.sh: a per-directory config wins where it
+    # sets a key, the global one fills in the rest. Reading only the global
+    # file would wave through a directory where /narrator:off --local has
+    # silenced output — the session builds, nothing speaks, no edge is
+    # published, and the listener waits out the full 300s EDGE_TIMEOUT.
+    #
+    # `enabled` starts EMPTY, not "false", so the fallback can fire. Seeding it
+    # with "false" is precisely the bug in hush-on-input.sh, where the
+    # `[[ -z "$enabled" ]]` guard can never be true and the global config is
+    # never read at all.
     local enabled=""
-    if [[ -f "$NARRATOR_CONFIG" ]]; then
+    local local_config="$PWD/.claude-code-narrator/config"
+    if [[ -f "$local_config" ]]; then
+        enabled="$(grep -m1 '^enabled=' "$local_config" 2>/dev/null | cut -d= -f2 || true)"
+    fi
+    if [[ -z "$enabled" && -f "$NARRATOR_CONFIG" ]]; then
         enabled="$(grep -m1 '^enabled=' "$NARRATOR_CONFIG" 2>/dev/null | cut -d= -f2 || true)"
     fi
     if [[ "$enabled" != "true" ]]; then
-        echo "claude-voice: voice output is disabled." >&2
+        echo "claude-voice: voice output is disabled for this directory." >&2
         echo "  Replies would be silent, and because the microphone reopens on the" >&2
-        echo "  finished-speaking edge, follow-ups would never work either." >&2
-        echo "  Turn it on with /narrator:on in any Claude Code session." >&2
+        echo "  finished-speaking edge, follow-ups would never work either — the" >&2
+        echo "  listener would just sit there looking dead." >&2
+        echo "  Turn it on with /narrator:on, or /narrator:on --local for only" >&2
+        echo "  this directory." >&2
         return 1
     fi
 }
