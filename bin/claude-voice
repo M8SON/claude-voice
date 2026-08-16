@@ -171,6 +171,24 @@ target="$(tmux display-message -p -t "$main_pane" \
 
 listener_cmd="AUTO_SUBMIT=$AUTO_SUBMIT CLAUDE_TMUX_TARGET=$target"
 listener_cmd+=" KAIZEN_ROOT=$(printf '%q' "$KAIZEN_ROOT")"
+
+# Forwarded explicitly rather than left to inheritance. A tmux pane inherits
+# the SERVER's environment, and the server only takes the caller's when it is
+# first started — so `STT_MODEL=base claude-voice` worked from a cold machine
+# and was silently dropped whenever a tmux server already existed, leaving the
+# user on whisper-tiny while believing otherwise.
+#
+# Only variables that are actually set are passed. Forwarding an unset one as
+# an empty string would override the listener's own default with "", and the
+# thresholds are parsed with float().
+for var in STT_MODEL WAKE_MODEL WAKE_THRESHOLD WAKE_DISPLAY \
+           VAD_BACKEND VAD_THRESHOLD VAD_RMS_THRESHOLD VAD_MIN_SILENCE_MS \
+           EDGE_TIMEOUT REPLY_TIMEOUT MIN_SPEECH_PEAK VOICE_SAMPLE_LOG; do
+    if [[ -n "${!var:-}" ]]; then
+        listener_cmd+=" $var=$(printf '%q' "${!var}")"
+    fi
+done
+
 listener_cmd+=" $(printf '%q' "$REPO/listener/run.sh")"
 
 # Run it under a shell that outlives it. Ctrl-C is the documented way to stop

@@ -147,6 +147,46 @@ else
 fi
 
 echo ""
+echo "=== Tuning variables reach the listener ==="
+
+# tmux panes inherit the SERVER's environment, not the caller's, and the server
+# only picks up the caller's when it is first started. So `STT_MODEL=base
+# claude-voice` worked from a cold machine and was silently dropped whenever a
+# tmux server already existed — which is most of the time. The user would get
+# whisper-tiny while believing they had selected base. The launcher must
+# forward these explicitly rather than rely on inheritance.
+tmux new-session -d -s cvenvtest 'sleep 120' 2>/dev/null   # guarantee a server exists
+TEST_SESSIONS+=(cvenvtest)
+
+# The session from the previous section is still up, and a second launch would
+# simply attach to it — leaving the old listener, with the old environment.
+launch --stop >/dev/null 2>&1
+STT_MODEL=base REPLY_TIMEOUT=20 launch --background >/dev/null 2>&1
+env_dump=$(listener_env)
+
+check "STT_MODEL reaches the listener despite a pre-existing server" \
+    "STT_MODEL=base" \
+    "$(grep -E '^STT_MODEL=' <<< "$env_dump" || echo 'STT_MODEL not forwarded')"
+
+check "other tunables are forwarded too" \
+    "REPLY_TIMEOUT=20" \
+    "$(grep -E '^REPLY_TIMEOUT=' <<< "$env_dump" || echo 'REPLY_TIMEOUT not forwarded')"
+
+# Unset variables must not be forwarded as empty strings, or the listener's own
+# defaults get overridden with "" and float() blows up on startup.
+if grep -qE '^WAKE_THRESHOLD=$' <<< "$env_dump"; then
+    bad "an unset tunable is not forwarded as empty" \
+        "WAKE_THRESHOLD was forwarded empty, clobbering the default"
+else
+    ok "an unset tunable is not forwarded as empty"
+fi
+
+tmux kill-session -t "=cvenvtest" 2>/dev/null || true
+launch --stop >/dev/null 2>&1
+launch --background >/dev/null 2>&1   # restore a clean session for what follows
+sleep 1
+
+echo ""
 echo "=== Stopping the listener leaves the pane to restart it in ==="
 
 # Ctrl-C is the documented way to stop the listener. If the listener is the
