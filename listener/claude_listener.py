@@ -81,15 +81,24 @@ SAMPLE_LOG = os.environ.get(
     os.path.expanduser("~/.claude-code-narrator/voice-samples.jsonl"),
 )
 
-# Peak amplitude an utterance must reach to count as speech. Measured at 40%
-# input gain: the loudest silent window reached 0.035, the quietest real
-# utterance ("Yes.") reached 0.05093. This sits between them, 1.20x above the
-# first and 1.21x below the second.
+# A backstop under every real utterance ever measured — NOT a separator.
+#
+# This was first set to 0.042, chosen to sit between the loudest silent window
+# (peak 0.035) and what looked like the quietest real utterance (0.05093). It
+# then blocked a genuine "Yes." measuring 0.00711. Spoken "Yes." ranges
+# 0.00711 to 0.06598 depending on how it is said, so real speech reaches far
+# below the noise floor of a loud silent window: the distributions overlap and
+# no threshold separates them. A floor tuned to admit a quiet "Yes." must also
+# admit silence, so the VAD endpoint carries the decision instead.
+#
+# 0.006 sits above the loudest hallucination that actually reached the pane
+# (0.00461) and below the quietest real utterance (0.00711). Raising it drops
+# speech; that is what the log is for.
 #
 # PEAK, not RMS. "Yes." measures RMS 0.00255 — BELOW a silent window's 0.0033 —
 # because a short word carries full amplitude but little average energy. An RMS
 # gate would drop exactly the short commands this is meant to protect.
-MIN_SPEECH_PEAK = float(os.environ.get("MIN_SPEECH_PEAK", "0.042"))
+MIN_SPEECH_PEAK = float(os.environ.get("MIN_SPEECH_PEAK", "0.006"))
 
 
 def status(message):
@@ -119,10 +128,14 @@ def measure_wav(path):
 def is_probably_speech(peak, endpoint):
     """True when an utterance looks like someone talking rather than a room.
 
-    Both conditions are needed. The VAD endpoint alone leaks — one staged
-    silent window in five fired it and produced "I'm going to take a picture."
-    The level alone is not enough either, since a door slam is loud and is not
-    speech.
+    The endpoint carries this. On real use it has been right every time: all
+    eight genuine utterances fired it, and both hallucinations that reached the
+    pane did not. It is not perfect — one staged silent window in five fired it
+    and produced "I'm going to take a picture." — but nothing measurable does
+    better, since peak level provably cannot separate the two populations.
+
+    The floor is a backstop under all measured speech, not a second opinion on
+    the overlapping region. Asking it to be one is what dropped a real "Yes."
     """
     return bool(endpoint) and peak >= MIN_SPEECH_PEAK
 
