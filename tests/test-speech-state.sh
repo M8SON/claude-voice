@@ -209,6 +209,45 @@ else
 fi
 
 echo ""
+echo "=== A hushed utterance still ends the turn ==="
+
+# The stall this prevents: a hush discards the utterance, and the discard used
+# to `continue` before publish_speech_finished(), so the turn's last utterance
+# produced no edge at all. A hands-free listener then waits out the full 300s
+# EDGE_TIMEOUT with the microphone shut. Silence is the intended effect of a
+# hush; a five-minute hang is not.
+dispatch() {
+    python3 -c "
+import sys, importlib.util
+spec = importlib.util.spec_from_file_location('d', '$SCRIPTS/speak-daemon.py')
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+print(m.dispatch($1, $2))
+"
+}
+
+check_dispatch() {
+    local description="$1" expected="$2" actual="$3"
+    if [[ "$actual" == "$expected" ]]; then
+        ok "$description"
+    else
+        bad "$description" "expected $expected, got $actual"
+    fi
+}
+
+check_dispatch "no recent hush: speak it, edge comes after playback" \
+    "(True, False)" "$(dispatch False 9.0)"
+
+check_dispatch "no recent hush, final utterance: same" \
+    "(True, False)" "$(dispatch True 9.0)"
+
+check_dispatch "hushed mid-turn utterance: dropped, no edge" \
+    "(False, False)" "$(dispatch False 1.0)"
+
+check_dispatch "hushed FINAL utterance: dropped, but the edge still fires" \
+    "(False, True)" "$(dispatch True 1.0)"
+
+echo ""
 echo "=============================="
 echo "Results: $PASS passed, $FAIL failed"
 if [[ $FAIL -gt 0 ]]; then

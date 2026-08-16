@@ -20,6 +20,25 @@ PID_FILE = os.path.join(NARRATOR_DIR, 'daemon.pid')
 SPEECH_FINISHED_FILE = os.path.join(NARRATOR_DIR, 'speech-finished')
 
 
+HUSH_WINDOW = 5.0
+
+
+def dispatch(final, seconds_since_hush, window=HUSH_WINDOW):
+    """What to do with a dequeued utterance: (speak, publish_edge_now).
+
+    A recent hush means the user has taken over, so the line is dropped. But
+    dropping the turn's LAST utterance must still publish the finished-speaking
+    edge: a hands-free listener has the microphone shut until that edge lands,
+    and silence is the point of a hush while a 300s hang is not.
+
+    When the line is spoken, the edge is published after playback drains
+    instead, so publish_edge_now is False on that path.
+    """
+    if seconds_since_hush < window:
+        return False, bool(final)
+    return True, False
+
+
 def publish_speech_finished():
     """Touch the finished-speaking file, ignoring any filesystem error."""
     try:
@@ -108,16 +127,9 @@ def main():
             if not line:
                 continue
 
-            # Record when this line was dequeued. If a hush arrived recently,
-            # skip it — it was queued before the user provided input.
-            now = time.monotonic()
-            if now - hush_time < 5.0:
-                # Line was buffered before the hush — discard.
-                continue
-
             try:
-                # Parse JSON lines for per-utterance voice/speed.
-                # Plain text lines (backward compat) fall back to global state.
+                # Parsed BEFORE the hush check, because whether this is the
+                # turn's final utterance decides what a discard has to do.
                 utterance_text = line
                 utterance_voice = None
                 utterance_speed = None
@@ -135,6 +147,16 @@ def main():
                 if not utterance_text.strip():
                     continue
 
+                # A hush means the user has taken over: drop the line. If it
+                # was the turn's last, the edge still has to fire, or a
+                # listener waits out its whole timeout with the mic shut.
+                speak, publish_now = dispatch(
+                    utterance_final, time.monotonic() - hush_time)
+                if not speak:
+                    if publish_now:
+                        publish_speech_finished()
+                    continue
+
                 voice = utterance_voice or os.environ.get('CLAUDE_VOICE') or read_state('voice', 'af_heart')
                 speed = float(utterance_speed if utterance_speed is not None else (os.environ.get('CLAUDE_VOICE_SPEED') or read_state('speed', '1.1')))
 
@@ -144,7 +166,12 @@ def main():
                         audio_chunks.append(audio)
 
                 # Check again after synthesis — hush may have arrived mid-TTS.
-                if time.monotonic() - hush_time < 5.0:
+                # Same rule: a dropped final utterance still ends the turn.
+                speak, publish_now = dispatch(
+                    utterance_final, time.monotonic() - hush_time)
+                if not speak:
+                    if publish_now:
+                        publish_speech_finished()
                     continue
 
                 if audio_chunks:

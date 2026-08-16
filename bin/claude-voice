@@ -152,11 +152,17 @@ fi
 AUTO_SUBMIT=true
 [[ "$REVIEW" == "true" ]] && AUTO_SUBMIT=false
 
-# --plugin-dir loads the plugin from this repo rather than the plugin cache,
-# so the hooks that run are the ones in this checkout.
+# Both panes run an interactive shell and are then typed into, rather than
+# taking the program as the pane's command. A pane whose command IS the program
+# dies when that program does, and Ctrl-C — the documented way to stop the
+# listener — would take the pane with it. You would then be left in a session
+# with no listener and no way to start one, because running claude-voice again
+# just attaches to this same session. Under an interactive shell, job control
+# puts the program in its own process group, so Ctrl-C stops it and drops to a
+# prompt with the command still in history.
 claude_cmd="claude --plugin-dir $(printf '%q' "$REPO")"
-main_pane="$(tmux new-session -d -s "$SESSION" -c "$PWD" \
-    -P -F '#{pane_id}' "$claude_cmd")"
+main_pane="$(tmux new-session -d -s "$SESSION" -c "$PWD" -P -F '#{pane_id}')"
+tmux send-keys -t "$main_pane" "$claude_cmd" Enter
 
 # Ask tmux what to call that pane rather than assuming 0.0 — pane-base-index
 # is configurable, and the listener validates this target by exact match.
@@ -167,9 +173,15 @@ listener_cmd="AUTO_SUBMIT=$AUTO_SUBMIT CLAUDE_TMUX_TARGET=$target"
 listener_cmd+=" KAIZEN_ROOT=$(printf '%q' "$KAIZEN_ROOT")"
 listener_cmd+=" $(printf '%q' "$REPO/listener/run.sh")"
 
+# Run it under a shell that outlives it. Ctrl-C is the documented way to stop
+# the listener, and if it were the pane's own command the pane would close with
+# it — leaving a session whose listener cannot be restarted, since running
+# claude-voice again just attaches to that same session. This way Ctrl-C drops
+# to a prompt with the command in history.
 # -d keeps the focus on the Claude pane, which is where you type.
-tmux split-window -d -v -l "$LISTENER_LINES" -t "$main_pane" -c "$REPO" \
-    "$listener_cmd" >/dev/null
+listener_pane="$(tmux split-window -d -v -l "$LISTENER_LINES" -t "$main_pane" \
+    -c "$REPO" -P -F '#{pane_id}')"
+tmux send-keys -t "$listener_pane" "$listener_cmd" Enter
 
 if [[ "$BACKGROUND" == "true" ]]; then
     echo "$SESSION is running in the background."

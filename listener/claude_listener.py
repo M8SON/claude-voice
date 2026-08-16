@@ -348,6 +348,27 @@ def tmux_target_exists(target):
     return False
 
 
+VOICE_SUBMIT_MARKER = os.path.expanduser(
+    "~/.claude-code-narrator/voice-submit")
+
+
+def mark_voice_submit():
+    """Tell hush-on-input.sh that the Enter about to be pressed is ours.
+
+    Pressing Enter in the pane is a UserPromptSubmit like any other, and
+    auto-hush reasonably treats that as the user interrupting. Here it is not:
+    hushing would silence the reply to the sentence just spoken, and the daemon
+    drops anything dequeued within 5s of a hush, so quick replies would vanish
+    entirely.
+    """
+    try:
+        os.makedirs(os.path.dirname(VOICE_SUBMIT_MARKER), exist_ok=True)
+        with open(VOICE_SUBMIT_MARKER, "w") as f:
+            f.write(str(time.time()))
+    except OSError:
+        pass
+
+
 def submit_to_tmux(target, text, auto_submit=True):
     """Type text into a tmux pane, optionally pressing Enter after it.
 
@@ -467,6 +488,7 @@ def main():
             # Read the edge before submitting, so a reply that arrives fast
             # cannot slip past between the two.
             edge_baseline = speech_finished_mtime()
+            mark_voice_submit()
             submit_to_tmux(TMUX_TARGET, text, auto_submit=AUTO_SUBMIT)
             in_conversation = True
     except KeyboardInterrupt:

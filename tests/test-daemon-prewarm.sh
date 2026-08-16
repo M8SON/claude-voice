@@ -82,7 +82,25 @@ setup_sandbox
     > "$TMPHOME/enqueued.txt" 2>/dev/null ) &
 READER=$!
 
-HOME="$TMPHOME" timeout 20 bash "$TMPSCRIPTS/speak.sh" --warm >/dev/null 2>&1 || true
+# `if` rather than a bare call: set -e would abort the suite on exactly the
+# non-zero exit this is here to measure.
+if HOME="$TMPHOME" timeout 20 bash "$TMPSCRIPTS/speak.sh" --warm \
+        >/dev/null 2>"$TMPHOME/warm.err"; then
+    warm_rc=0
+else
+    warm_rc=$?
+fi
+warm_err=$(cat "$TMPHOME/warm.err" 2>/dev/null || true)
+
+# The EXIT trap that releases the lock referenced a variable scoped to the
+# function that set it, so it evaluated after the function returned and
+# tripped `set -u` on the way out. The daemon still started, which is exactly
+# why this went unnoticed — the failure was only ever visible on stderr.
+if [[ $warm_rc -eq 0 && -z "$warm_err" ]]; then
+    ok "warming exits cleanly"
+else
+    bad "warming exits cleanly" "rc=$warm_rc stderr=$warm_err"
+fi
 
 if [[ -f "$TMPHOME/.claude-code-narrator/daemon.pid" ]]; then
     ok "a daemon is started"

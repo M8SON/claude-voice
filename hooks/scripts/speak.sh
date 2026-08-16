@@ -11,6 +11,10 @@ mkdir -p "$NARRATOR_DIR"
 FIFO="$NARRATOR_DIR/fifo"
 PID_FILE="$NARRATOR_DIR/daemon.pid"
 STATE_FILE="$NARRATOR_DIR/config"
+# Global, not scoped to ensure_daemon: the EXIT trap that releases this lock
+# runs after that function has returned, and a local would be gone by then —
+# which tripped `set -u` on every warm start.
+LOCK_DIR="$NARRATOR_DIR/daemon.lock"
 LOCAL_STATE_FILE="${NARRATOR_CWD:+${NARRATOR_CWD}/.claude-code-narrator/config}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -41,7 +45,6 @@ ensure_daemon() {
         fi
     fi
 
-    local LOCK_DIR="$NARRATOR_DIR/daemon.lock"
     if [[ "$daemon_running" != "true" ]]; then
         # Clean up stale lock from a previous daemon that was killed externally
         if [[ -d "$LOCK_DIR" ]]; then

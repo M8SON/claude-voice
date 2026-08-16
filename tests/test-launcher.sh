@@ -116,20 +116,34 @@ check "it has two panes — Claude and the listener" \
 
 # The listener must be told a target that its own validator accepts, which is
 # session:window.pane — not a tmux pane id, which would silently never match.
-if tmux list-panes -t voice-myproject -F '#{pane_start_command}' 2>/dev/null \
+# -J joins wrapped lines: the command is longer than the pane is wide.
+if tmux capture-pane -p -J -t voice-myproject:0.1 2>/dev/null \
     | grep -q 'CLAUDE_TMUX_TARGET=voice-myproject:0\.0'; then
     ok "the listener is pointed at the Claude pane"
 else
     bad "the listener is pointed at the Claude pane" \
-        "$(tmux list-panes -t voice-myproject -F '#{pane_start_command}' 2>/dev/null)"
+        "$(tmux capture-pane -p -J -t voice-myproject:0.1 2>/dev/null)"
 fi
 
-if tmux list-panes -t voice-myproject -F '#{pane_start_command}' 2>/dev/null \
+if tmux capture-pane -p -J -t voice-myproject:0.1 2>/dev/null \
     | grep -q 'AUTO_SUBMIT=true'; then
     ok "transcripts are submitted by default"
 else
     bad "transcripts are submitted by default" "AUTO_SUBMIT=true not found"
 fi
+
+echo ""
+echo "=== Stopping the listener leaves the pane to restart it in ==="
+
+# Ctrl-C is the documented way to stop the listener. If the listener is the
+# pane's own command the pane dies with it, and since a second claude-voice
+# run just attaches to the existing session, you end up attached to a session
+# with no listener and no obvious way to get one back.
+tmux send-keys -t voice-myproject:0.1 C-c
+sleep 1
+check "the pane survives its command exiting" \
+    "2" \
+    "$(tmux list-panes -t voice-myproject 2>/dev/null | wc -l | tr -d ' ')"
 
 echo ""
 echo "=== Running it again attaches rather than duplicating ==="
