@@ -79,6 +79,39 @@ claude --plugin-dir /path/to/claude-code-narrator
 4. **Change voice**: `/narrator:cast af_bella` (or any voice from the table below)
 5. **Silence**: `/narrator:hush` to stop current speech, `/narrator:off` to disable entirely
 
+## Hands-free voice (fork addition)
+
+Upstream speaks; this fork also listens. `claude-voice` launches both halves
+together — Claude Code in your current directory, and a wake-word listener
+underneath it already wired to that pane.
+
+```bash
+ln -s "$PWD/bin/claude-voice" ~/.local/bin/claude-voice   # once
+cd ~/any/project
+claude-voice
+```
+
+Then say **"hey jarvis"** and talk. After a reply finishes, the microphone
+reopens on its own — follow-ups need no wake word. Stay quiet for 12 seconds
+and it drops back to waiting for one.
+
+| Command | Description |
+|---------|-------------|
+| `claude-voice` | Start, or reattach if a session is already running here |
+| `claude-voice --background` | Start without taking over the terminal. Speech still works: you hear replies without seeing them |
+| `claude-voice --stop` | Kill this directory's session |
+| `claude-voice --review` | Type transcripts into the input line without pressing Enter, so you can read one before it becomes a prompt |
+| `claude-voice --print-session` | Print this directory's session name |
+
+Sessions are named per directory (`voice-<dirname>`), so voice on one project
+and voice on another coexist rather than fighting over a shared name. Running
+it twice in the same directory attaches to what is already there.
+
+Requires `/narrator:on`, tmux, and kaizen's venv for the wake-word, VAD, and
+transcription backends (`KAIZEN_ROOT`, default `~/linux/kaizen`). All three are
+checked before anything is built, so a failure shows up in your terminal rather
+than as silence in a pane you are not watching.
+
 ## Commands
 
 | Command | Description |

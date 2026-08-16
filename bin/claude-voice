@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# Launch a hands-free voice session for the current directory.
+#
+# Builds the two-pane tmux layout that until now had to be assembled by hand:
+# Claude Code in your current directory, and the wake-word listener below it,
+# already pointed at that pane.
+#
+#   claude-voice              start, or reattach if one is already running here
+#   claude-voice --background start it without taking over the terminal
+#   claude-voice --stop       kill this directory's session
+#   claude-voice --review     type transcripts but let you press Enter
+#
+# Sessions are named per directory, so a voice session on kaizen and one on
+# claude-voice coexist instead of fighting over a single shared name.
+
+set -euo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
+KAIZEN_ROOT="${KAIZEN_ROOT:-/home/daedalus/linux/kaizen}"
+NARRATOR_CONFIG="$HOME/.claude-code-narrator/config"
+
+# The listener pane only prints status lines, so it gets the smaller half.
+LISTENER_LINES="${LISTENER_LINES:-8}"
+
+usage() {
+    cat <<EOF
+Usage: claude-voice [options]
+
+Talk to Claude Code in the current directory and hear it answer.
+
+Options:
+  --background     Start the session without attaching. Speech still works —
+                   you hear replies without seeing them. Attach later with
+                   tmux attach -t \$(claude-voice --print-session)
+  --stop           Kill this directory's session.
+  --review         Type transcripts into the input line without pressing
+                   Enter, so you can read one before it becomes a prompt.
+  --print-session  Print the session name for this directory and exit.
+  -h, --help       Show this.
+EOF
+}
+
+# tmux session name for a directory. Named after the directory so each project
+# gets its own, and sanitised because tmux treats "." and ":" as separators in
+# target names — a session called "my.proj" cannot be addressed reliably.
+session_name() {
+    local base
+    base="$(basename "$1")"
+    base="$(printf '%s' "$base" | tr -c 'A-Za-z0-9_-' '-')"
+    base="$(printf '%s' "$base" | sed -E 's/^-+//; s/-+$//')"
+    [[ -z "$base" ]] && base="root"
+    printf 'voice-%s' "$base"
+}
+
+# Everything the session needs, checked before any of it is built. A failure
+# here has to land in the user's terminal: in --background mode nobody is
+# watching the panes, so a half-built session would just be silence.
+preflight() {
+    if ! command -v tmux >/dev/null 2>&1; then
+        echo "claude-voice: tmux is not installed, and the session is built out of tmux panes." >&2
+        return 1
+    fi
+
+    if ! command -v claude >/dev/null 2>&1; then
+        echo "claude-voice: 'claude' is not on your PATH." >&2
+        return 1
+    fi
+
+    if [[ ! -x "$KAIZEN_ROOT/.venv/bin/python" ]]; then
+        echo "claude-voice: kaizen's venv is missing at $KAIZEN_ROOT/.venv/bin/python" >&2
+        echo "  The listener runs kaizen's wake-word, VAD and transcription backends" >&2
+        echo "  under it. Set KAIZEN_ROOT, or build the venv in that checkout." >&2
+        return 1
+    fi
+
+    local enabled=""
+    if [[ -f "$NARRATOR_CONFIG" ]]; then
+        enabled="$(grep -m1 '^enabled=' "$NARRATOR_CONFIG" 2>/dev/null | cut -d= -f2 || true)"
+    fi
+    if [[ "$enabled" != "true" ]]; then
+        echo "claude-voice: voice output is disabled." >&2
+        echo "  Replies would be silent, and because the microphone reopens on the" >&2
+        echo "  finished-speaking edge, follow-ups would never work either." >&2
+        echo "  Turn it on with /narrator:on in any Claude Code session." >&2
+        return 1
+    fi
+}
+
+BACKGROUND=false
+STOP=false
+REVIEW=false
+PRINT_SESSION=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --background) BACKGROUND=true; shift ;;
+        --stop) STOP=true; shift ;;
+        --review) REVIEW=true; shift ;;
+        --print-session) PRINT_SESSION=true; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "claude-voice: unknown option '$1'" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+SESSION="$(session_name "$PWD")"
+
+if [[ "$PRINT_SESSION" == "true" ]]; then
+    printf '%s\n' "$SESSION"
+    exit 0
+fi
+
+# "=" forces an exact match. Without it tmux prefix-matches, so a session
+# named voice-kaizen would answer for voice-kai and the wrong pane gets typed
+# into — the same trap the listener's own target validation guards against.
+if [[ "$STOP" == "true" ]]; then
+    if tmux has-session -t "=$SESSION" 2>/dev/null; then
+        tmux kill-session -t "=$SESSION"
+        echo "Stopped $SESSION."
+    else
+        echo "$SESSION is not running."
+    fi
+    exit 0
+fi
+
+preflight || exit 1
+
+if tmux has-session -t "=$SESSION" 2>/dev/null; then
+    if [[ "$BACKGROUND" == "true" ]]; then
+        echo "$SESSION is already running. Attach with: tmux attach -t $SESSION"
+        exit 0
+    fi
+    exec tmux attach -t "=$SESSION"
+fi
+
+AUTO_SUBMIT=true
+[[ "$REVIEW" == "true" ]] && AUTO_SUBMIT=false
+
+# --plugin-dir loads the plugin from this repo rather than the plugin cache,
+# so the hooks that run are the ones in this checkout.
+claude_cmd="claude --plugin-dir $(printf '%q' "$REPO")"
+main_pane="$(tmux new-session -d -s "$SESSION" -c "$PWD" \
+    -P -F '#{pane_id}' "$claude_cmd")"
+
+# Ask tmux what to call that pane rather than assuming 0.0 — pane-base-index
+# is configurable, and the listener validates this target by exact match.
+target="$(tmux display-message -p -t "$main_pane" \
+    '#{session_name}:#{window_index}.#{pane_index}')"
+
+listener_cmd="AUTO_SUBMIT=$AUTO_SUBMIT CLAUDE_TMUX_TARGET=$target"
+listener_cmd+=" KAIZEN_ROOT=$(printf '%q' "$KAIZEN_ROOT")"
+listener_cmd+=" $(printf '%q' "$REPO/listener/run.sh")"
+
+# -d keeps the focus on the Claude pane, which is where you type.
+tmux split-window -d -v -l "$LISTENER_LINES" -t "$main_pane" -c "$REPO" \
+    "$listener_cmd" >/dev/null
+
+if [[ "$BACKGROUND" == "true" ]]; then
+    echo "$SESSION is running in the background."
+    echo "Say the wake word and talk — you will hear replies without seeing them."
+    echo "Attach with: tmux attach -t $SESSION"
+    exit 0
+fi
+
+exec tmux attach -t "=$SESSION"
