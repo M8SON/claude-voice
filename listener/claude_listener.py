@@ -230,21 +230,95 @@ def speech_finished_mtime():
         return 0.0
 
 
-def wait_for_speech_finished(baseline, timeout=EDGE_TIMEOUT, poll=0.2):
+def read_config_value(path, key):
+    """One key out of a narrator config file, or "" if absent."""
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key + "="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def narrator_enabled(cwd=None):
+    """Whether voice output is on, resolved the way speak.sh resolves it.
+
+    A per-directory config wins where it sets the key; the global one fills in
+    the rest. The value starts empty rather than "false" so the fallback can
+    fire — seeding it with "false" is the bug that has kept hush-on-input.sh
+    from ever reading the global config.
+    """
+    candidates = []
+    if cwd:
+        candidates.append(os.path.join(cwd, ".claude-code-narrator", "config"))
+    candidates.append(os.path.expanduser("~/.claude-code-narrator/config"))
+
+    for path in candidates:
+        value = read_config_value(path, "enabled")
+        if value:
+            return value == "true"
+    return False
+
+
+def claude_pane_cwd():
+    """The directory Claude is running in, asked of tmux.
+
+    Not this process's cwd: claude-voice starts Claude in your project and the
+    listener from the plugin repo, so they routinely differ and only Claude's
+    is the one narrator resolves its per-directory config against.
+    """
+    if not TMUX_TARGET:
+        return None
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "-t", TMUX_TARGET,
+             "#{pane_current_path}"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def wait_for_speech_finished(baseline, timeout=EDGE_TIMEOUT, poll=0.2,
+                             health_every=10):
     """Block until narrator publishes an edge newer than baseline.
 
-    Returns the new mtime, or None on timeout. Polling a mtime is deliberately
-    dumber than an IPC channel: the daemon is a separate process that may be
-    restarted, or absent entirely, and a missed edge should degrade to "say the
-    wake word again" rather than deadlock.
+    Returns (mtime, None) when one arrives, (None, "timeout") when none does,
+    and (None, "silenced") on giving up early because voice output is switched
+    off and no edge can ever come.
+
+    That last case is the difference between a five-minute hang and a sentence
+    telling you what happened. Turning output off mid-conversation leaves the
+    microphone shut for the whole EDGE_TIMEOUT, and under --background the
+    status lines are not even on screen, so it presents as the assistant simply
+    having died.
+
+    Polling an mtime stays deliberately dumber than an IPC channel: the daemon
+    is a separate process that may be restarted or absent, and a missed edge
+    should degrade to "say the wake word again" rather than deadlock.
     """
     deadline = time.monotonic() + timeout
+    checks = 0
     while time.monotonic() < deadline:
         current = speech_finished_mtime()
         if current > baseline:
-            return current
+            return current, None
+
+        # Rate-limited: this shells out to tmux, and the edge poll runs several
+        # times a second.
+        checks += 1
+        if checks % health_every == 0 and not narrator_enabled(claude_pane_cwd()):
+            return None, "silenced"
+
         time.sleep(poll)
-    return None
+    return None, "timeout"
 
 
 def tmux_target_exists(target):
@@ -350,8 +424,15 @@ def main():
                 # Do not open the mic while Kokoro is still talking, or we
                 # transcribe our own output and submit it back.
                 status("Waiting for the reply to finish...")
-                if wait_for_speech_finished(edge_baseline) is None:
-                    status(f"No reply within {EDGE_TIMEOUT:.0f}s — say the wake word.")
+                edge, reason = wait_for_speech_finished(edge_baseline)
+                if edge is None:
+                    if reason == "silenced":
+                        status("Voice output is off, so nothing will be spoken and "
+                               "the microphone cannot reopen on its own — "
+                               "say the wake word, or turn it back on with "
+                               "/narrator:on.")
+                    else:
+                        status(f"No reply within {EDGE_TIMEOUT:.0f}s — say the wake word.")
                     in_conversation = False
                     continue
                 status("Listening for your reply...")

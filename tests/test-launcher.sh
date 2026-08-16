@@ -70,9 +70,15 @@ launch() {
       bash "$LAUNCHER" "$@" 2>&1 )
 }
 
+# Only the sessions these tests create, by exact name. Sweeping every
+# "voice-*" session would kill the user's real ones — running the suite once
+# destroyed a live voice-claude-voice session and took the tmux server with it.
+# "=" forces exact matching; tmux prefix-matches otherwise.
+TEST_SESSIONS=(voice-myproject voice-my-odd-project)
+
 teardown() {
-    for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^voice-'); do
-        tmux kill-session -t "$s" 2>/dev/null || true
+    for s in "${TEST_SESSIONS[@]}"; do
+        tmux kill-session -t "=$s" 2>/dev/null || true
     done
     rm -rf "$SANDBOX"
 }
