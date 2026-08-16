@@ -62,8 +62,13 @@ ensure_daemon() {
                     rm -f "$FIFO"
                 fi
                 mkfifo "$FIFO" 2>/dev/null || true
-                # Start daemon in background (loads TTS pipeline — takes ~10s on first start)
-                nohup bash "$SCRIPT_DIR/speak-daemon.sh" >/dev/null 2>&1 &
+                # Start daemon in background (loads TTS pipeline — takes ~10s on first start).
+                # Both streams are kept: the daemon reports playback failures on
+                # stderr, and sending those to /dev/null made an intermittent
+                # audio fault effectively undiagnosable. Appended, not truncated —
+                # when a fault kills the daemon, the previous run's last words are
+                # the ones worth having.
+                nohup bash "$SCRIPT_DIR/speak-daemon.sh" >>"$NARRATOR_DIR/daemon.log" 2>&1 &
                 disown
                 # Wait for daemon to open the FIFO (pipeline loading takes time)
                 for i in $(seq 1 30); do
