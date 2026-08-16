@@ -29,17 +29,85 @@ resolve_state() {
     printf '%s' "${val:-$default}"
 }
 
+# Bring the speech daemon up if it is not already running, and wait until it
+# is ready to read the FIFO. Loading Kokoro takes ~13s, so callers that must
+# return promptly should run this detached rather than inline.
+ensure_daemon() {
+    local daemon_running=false pid i
+    if [[ -f "$PID_FILE" ]]; then
+        pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            daemon_running=true
+        fi
+    fi
+
+    local LOCK_DIR="$NARRATOR_DIR/daemon.lock"
+    if [[ "$daemon_running" != "true" ]]; then
+        # Clean up stale lock from a previous daemon that was killed externally
+        if [[ -d "$LOCK_DIR" ]]; then
+            rmdir "$LOCK_DIR" 2>/dev/null || true
+        fi
+        # Use mkdir as an atomic lock to prevent concurrent daemon starts
+        if mkdir "$LOCK_DIR" 2>/dev/null; then
+            trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+            # Re-check after acquiring lock — another invocation may have started the daemon
+            if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+                rmdir "$LOCK_DIR" 2>/dev/null || true
+            else
+                # Ensure FIFO exists and is a named pipe (not a regular file)
+                if [[ -e "$FIFO" && ! -p "$FIFO" ]]; then
+                    rm -f "$FIFO"
+                fi
+                mkfifo "$FIFO" 2>/dev/null || true
+                # Start daemon in background (loads TTS pipeline — takes ~10s on first start)
+                nohup bash "$SCRIPT_DIR/speak-daemon.sh" >/dev/null 2>&1 &
+                disown
+                # Wait for daemon to open the FIFO (pipeline loading takes time)
+                for i in $(seq 1 30); do
+                    if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+                        break
+                    fi
+                    sleep 0.5
+                done
+                rmdir "$LOCK_DIR" 2>/dev/null || true
+            fi
+        else
+            # Another invocation holds the lock — wait for daemon to become ready
+            for i in $(seq 1 30); do
+                if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+        fi
+    fi
+}
+
 FORCE=false
 FINAL=false
+WARM=false
 
 # Parse arguments
 while [[ "${1:-}" == --* ]]; do
     case "$1" in
         --force) FORCE=true; shift ;;
         --final) FINAL=true; shift ;;
+        --warm) WARM=true; shift ;;
         *) break ;;
     esac
 done
+
+# --warm loads the daemon and speaks nothing. SessionStart uses it so the
+# ~13s Kokoro load happens off the critical path: the Stop hook's budget is
+# 10s, and a cold daemon overran it, losing both the speech and the
+# finished-speaking edge a hands-free listener waits on.
+if [[ "$WARM" == "true" ]]; then
+    if [[ "$FORCE" != "true" && "$(resolve_state "enabled" "false")" != "true" ]]; then
+        exit 0
+    fi
+    ensure_daemon
+    exit 0
+fi
 
 # Get text from argument or stdin
 if [[ $# -gt 0 ]]; then
@@ -141,54 +209,7 @@ if [[ "$FORCE" != "true" ]]; then
 fi
 
 # Start daemon if not running
-daemon_running=false
-if [[ -f "$PID_FILE" ]]; then
-    pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-        daemon_running=true
-    fi
-fi
-
-LOCK_DIR="$NARRATOR_DIR/daemon.lock"
-if [[ "$daemon_running" != "true" ]]; then
-    # Clean up stale lock from a previous daemon that was killed externally
-    if [[ -d "$LOCK_DIR" ]]; then
-        rmdir "$LOCK_DIR" 2>/dev/null || true
-    fi
-    # Use mkdir as an atomic lock to prevent concurrent daemon starts
-    if mkdir "$LOCK_DIR" 2>/dev/null; then
-        trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
-        # Re-check after acquiring lock — another invocation may have started the daemon
-        if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
-            rmdir "$LOCK_DIR" 2>/dev/null || true
-        else
-            # Ensure FIFO exists and is a named pipe (not a regular file)
-            if [[ -e "$FIFO" && ! -p "$FIFO" ]]; then
-                rm -f "$FIFO"
-            fi
-            mkfifo "$FIFO" 2>/dev/null || true
-            # Start daemon in background (loads TTS pipeline — takes ~10s on first start)
-            nohup bash "$SCRIPT_DIR/speak-daemon.sh" >/dev/null 2>&1 &
-            disown
-            # Wait for daemon to open the FIFO (pipeline loading takes time)
-            for i in $(seq 1 30); do
-                if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
-                    break
-                fi
-                sleep 0.5
-            done
-            rmdir "$LOCK_DIR" 2>/dev/null || true
-        fi
-    else
-        # Another invocation holds the lock — wait for daemon to become ready
-        for i in $(seq 1 30); do
-            if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
-                break
-            fi
-            sleep 0.5
-        done
-    fi
-fi
+ensure_daemon
 
 # Resolve voice and speed for this utterance
 voice=$(resolve_state "voice" "af_heart")

@@ -5,6 +5,7 @@
 set -euo pipefail
 
 STATE_FILE="$HOME/.claude-code-narrator/config"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 enabled=""
 if [[ -f "$STATE_FILE" ]]; then
@@ -14,6 +15,14 @@ fi
 if [[ "$enabled" != "true" ]]; then
     exit 0
 fi
+
+# Start loading Kokoro now, detached, so the daemon is warm by the time the
+# first turn ends. Inline it would not fit: the load takes ~13s and the Stop
+# hook's budget is 10s, so a cold first turn was killed mid-wait and produced
+# neither speech nor the finished-speaking edge a hands-free listener waits
+# on. Detached, this hook still returns in milliseconds.
+nohup bash "$SCRIPT_DIR/speak.sh" --warm >/dev/null 2>&1 </dev/null &
+disown
 
 read -r -d '' RULES <<'EOF' || true
 Voice output is active. This conversation is being spoken aloud.
