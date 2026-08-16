@@ -69,11 +69,18 @@ def main():
     fifo_path = sys.argv[1]
 
     import kokoro
-    import sounddevice as sd
     import numpy as np
+
+    import playback
 
     # Load pipeline once — this is the expensive step (~9s).
     pipeline = kokoro.KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
+
+    # Which route audio takes out of this machine. Reported because on WSL the
+    # answer decides whether speech sputters, and a silent choice would be one
+    # more thing to reverse-engineer at 5pm.
+    player, backend = playback.create_player(read_state('playback', 'auto'))
+    print("playback backend: %s" % backend, file=sys.stderr)
 
     # Open FIFO read-write to prevent EOF when no writers.
     fd = os.open(fifo_path, os.O_RDWR)
@@ -87,7 +94,7 @@ def main():
     hush_time = 0.0
 
     def shutdown(signum, frame):
-        sd.stop()
+        player.stop()
         try:
             os.unlink(PID_FILE)
         except OSError:
@@ -97,7 +104,7 @@ def main():
     def hush(signum, frame):
         nonlocal hush_time
         hush_time = time.monotonic()
-        sd.stop()
+        player.stop()
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
@@ -176,8 +183,19 @@ def main():
 
                 if audio_chunks:
                     full_audio = np.concatenate(audio_chunks)
-                    sd.play(full_audio, samplerate=24000)
-                    sd.wait()
+                    try:
+                        player.play(full_audio, 24000)
+                    except Exception as e:
+                        # A route that failed once will keep failing — a broken
+                        # interop layer does not repair itself between
+                        # utterances — so switch for good rather than paying
+                        # the failure on every line. Speaking badly beats not
+                        # speaking, and the rebind is what keeps hush working.
+                        print("playback: %s route failed (%s); using %s from now on"
+                              % (backend, e, playback.SOUNDDEVICE), file=sys.stderr)
+                        player = playback.SoundDevicePlayer()
+                        backend = playback.SOUNDDEVICE
+                        player.play(full_audio, 24000)
 
                 # Playback has drained. If this was the turn's last utterance,
                 # publish the edge — mid-turn progress calls do not set "final",

@@ -33,8 +33,9 @@ def read_state(key, default):
 def speak(text):
     """Synthesize and play speech."""
     import kokoro
-    import sounddevice as sd
     import numpy as np
+
+    import playback
 
     voice = os.environ.get('CLAUDE_VOICE') or read_state('voice', 'af_heart')
     speed = float(os.environ.get('CLAUDE_VOICE_SPEED') or read_state('speed', '1.1'))
@@ -50,8 +51,8 @@ def speak(text):
         return
 
     full_audio = np.concatenate(audio_chunks)
-    sd.play(full_audio, samplerate=24000)
-    sd.wait()
+    player, _ = playback.create_player(read_state('playback', 'auto'))
+    player.play(full_audio, 24000)
 
 
 if __name__ == '__main__':
