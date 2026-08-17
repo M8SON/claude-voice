@@ -154,6 +154,39 @@ Add `--local` to `on`, `off`, `cast` or `speed` to apply the setting to the curr
 directory only, via `<cwd>/.claude-code-narrator/config`. Local settings win over
 global ones per key; anything unset falls back.
 
+### Playback route
+
+Under WSL, speech sputters — and not because of Kokoro or the daemon. WSLg's
+PulseAudio RDP sink plays cleanly for about twenty seconds after resuming from
+idle, then starves the audio callback for hundreds of milliseconds at a time,
+degrading the longer it stays active and surviving a stream close and reopen.
+Measured with an identical 30-second signal: through WSL audio, 30 seconds of
+audio took **91.5 seconds** and stuttered; written to a Windows path and played
+by `Media.SoundPlayer`, **32.6 seconds**, clean.
+
+So playback picks a route. Set `playback=` in `~/.claude-code-narrator/config`:
+
+| Value | What it does |
+|---|---|
+| `auto` (default) | Windows when `/proc/version` says WSL *and* `powershell.exe` is reachable; otherwise `sounddevice` |
+| `windows` | Always route through Windows |
+| `sounddevice` | Always use the system audio server — upstream's behaviour |
+
+An explicit setting always wins, because detection can be wrong and this is the
+way out when it is. WSL with interop disabled falls back to `sounddevice` rather
+than choosing a route that cannot play: silence would be worse than the sputter
+this avoids.
+
+The Windows route costs roughly 0.7–1.2 seconds before each spoken line —
+PowerShell startup plus loading the WAV — scaling with the length of the line.
+Off WSL, nothing changes and nothing is spawned.
+
+The daemon records which route it chose in `~/.claude-code-narrator/daemon.log`,
+along with anything that went wrong while speaking.
+
+Note this routes *around* the WSLg fault rather than fixing it. Anything else on
+the machine playing through PulseAudio still sputters.
+
 ## Tuning
 
 Set any of these when launching; the launcher forwards them to the listener.
@@ -236,9 +269,13 @@ lines from a FIFO and speaks them one at a time. The utterance ending a turn is
 flagged `final`; after it drains, the daemon touches `speech-finished`, and that is
 the signal the listener waits on.
 
-State lives in `~/.claude-code-narrator/`: `config` (enabled, voice, speed), the
-`fifo`, `daemon.pid`, and `speech-finished`. Per-directory overrides live in
-`<cwd>/.claude-code-narrator/config`.
+State lives in `~/.claude-code-narrator/`: `config` (enabled, voice, speed,
+playback), the `fifo`, `daemon.pid`, `speech-finished`, and `daemon.log`.
+Per-directory overrides live in `<cwd>/.claude-code-narrator/config`.
+
+`daemon.log` is where the daemon's own output goes. It used to go to `/dev/null`,
+which is why an intermittent audio fault took an afternoon to localise instead of
+being readable in a file.
 
 Hooks, all scoped to plugin sessions:
 
@@ -260,7 +297,7 @@ bash tests/run-all.sh          # everything
 bash tests/test-launcher.sh    # one suite
 ```
 
-13 suites of plain bash, each self-contained, using an `assert`/`check` pattern.
+15 suites of plain bash, each self-contained, using an `assert`/`check` pattern.
 New files matching `tests/test-*.sh` are picked up automatically.
 
 Tests exercise real things where the real thing is the point: real tmux sessions
